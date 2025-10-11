@@ -17,6 +17,9 @@ from pathlib import Path
 import argparse
 import requests
 from tqdm import tqdm
+from typing import Dict, Any, List, Optional
+import numpy as np
+import pandas as pd
 
 class DatasetDownloader:
     """Downloads and prepares IoT botnet datasets."""
@@ -147,48 +150,26 @@ class DatasetDownloader:
         return success_count == len(self.datasets['n_baiot']['files'])
 
     def download_iot_23(self) -> bool:
-        """Download IoT-23 dataset (placeholder - adjust URL as needed)."""
-
-        print("\n📥 Downloading IoT-23 Dataset...")
-        print("=" * 50)
-        print("⚠️ Note: IoT-23 requires manual download from Stratosphere IPS")
-        print("Please visit: https://www.stratosphereips.org/datasets-iot23")
-        print("Download the dataset manually and place in:", self.data_dir / 'iot_23')
-
-        # Create directory structure
+        print("\n📥 IoT-23 requires manual download from Stratosphere. Skipping automated download.")
         dataset_dir = self.data_dir / 'iot_23'
         dataset_dir.mkdir(exist_ok=True)
-
-        # Check if files already exist
         csv_files = list(dataset_dir.glob('*.csv'))
         if csv_files:
             print(f"✅ Found {len(csv_files)} CSV files in IoT-23 directory")
             return True
-        else:
-            print("❌ No CSV files found. Please download manually.")
-            return False
+        # Not found -> return False but keep directory
+        return False
 
     def download_bot_iot(self) -> bool:
-        """Download BoT-IoT dataset (placeholder - adjust URL as needed)."""
-
-        print("\n📥 Downloading BoT-IoT Dataset...")
-        print("=" * 50)
-        print("⚠️ Note: BoT-IoT requires manual download from UNSW")
-        print("Please visit: https://www.unsw.adfa.edu.au/unsw-canberra-cyber/cybersecurity/ADFA-NB15-Datasets/")
-        print("Download the BoT-IoT dataset manually and place in:", self.data_dir / 'bot_iot')
-
-        # Create directory structure
+        print("\n📥 BoT-IoT requires manual download from Stratosphere. Skipping automated download.")
         dataset_dir = self.data_dir / 'bot_iot'
         dataset_dir.mkdir(exist_ok=True)
-
-        # Check if files already exist
         csv_files = list(dataset_dir.glob('*.csv'))
         if csv_files:
             print(f"✅ Found {len(csv_files)} CSV files in BoT-IoT directory")
             return True
-        else:
-            print("❌ No CSV files found. Please download manually.")
-            return False
+        # Not found -> return False but keep directory
+        return False
 
     def create_sample_data(self) -> None:
         """Create sample data for testing when real datasets are not available."""

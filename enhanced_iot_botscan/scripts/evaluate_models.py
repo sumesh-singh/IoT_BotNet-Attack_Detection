@@ -15,6 +15,7 @@ from datetime import datetime
 import logging
 import joblib
 from pathlib import Path
+from typing import Dict, Any, List, Optional
 
 # Add src to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -50,7 +51,7 @@ class ModelEvaluator:
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model file not found: {model_path}")
 
-        model = HybridEnsemble(self.config_manager.config_path)
+        model = HybridEnsemble(self.config_manager.config)
         model.load_model(model_path)
 
         self.logger.info(f"Model loaded from {model_path}")

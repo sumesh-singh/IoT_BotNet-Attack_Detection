@@ -193,7 +193,6 @@ FGSM attack for generating adversarial examples against IoT botnet detection mod
 """
 
 import numpy as np
-import tensorflow as tf
 from typing import Dict, Any, Optional, Union
 from sklearn.base import BaseEstimator
 import logging
@@ -210,6 +209,7 @@ class FGSMAttack:
     
     def generate(self, X: np.ndarray, y: np.ndarray, model) -> np.ndarray:
         """Generate FGSM adversarial examples."""
+        import tensorflow as tf
         
         # Convert to TensorFlow tensors
         X_tf = tf.Variable(X.astype(np.float32), trainable=True)
@@ -335,7 +335,6 @@ PGD attack for generating stronger adversarial examples against IoT botnet detec
 """
 
 import numpy as np
-import tensorflow as tf
 from typing import Dict, Any, Optional
 import logging
 
@@ -354,6 +353,7 @@ class PGDAttack:
     
     def generate(self, X: np.ndarray, y: np.ndarray, model) -> np.ndarray:
         """Generate PGD adversarial examples."""
+        import tensorflow as tf
         adversarial_examples = []
         
         for i in range(len(X)):

@@ -1,0 +1,5 @@
+data:
+  data_paths:
+    n_baiot: "./data/raw/n_baiot"
+    iot_23: "./data/raw/iot_23"
+    bot_iot: "./data/raw/bot_iot"

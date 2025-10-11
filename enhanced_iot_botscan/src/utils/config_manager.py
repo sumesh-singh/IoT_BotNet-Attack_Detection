@@ -8,20 +8,26 @@ Manages system configuration and provides centralized config access.
 import yaml
 import json
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from pathlib import Path
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ConfigManager:
     """Centralized configuration management."""
 
     def __init__(self, config_path: Optional[str] = None):
         """Initialize configuration manager."""
-
+        
         if config_path is None:
             config_path = self._find_default_config()
+            logger.info(f"No config path provided, using default: {config_path}")
 
         self.config_path = config_path
         self.config = self._load_config(config_path)
+        logger.info(f"Configuration loaded from: {self.config_path}")
 
         # Apply environment variable overrides
         self._apply_env_overrides()
@@ -120,7 +126,7 @@ class ConfigManager:
         """Apply environment variable overrides to configuration."""
 
         import os
-
+        logger.info("Applying environment variable overrides...")
         # Common environment variable mappings
         env_mappings = {
             'DB_HOST': ['database', 'primary', 'host'],
@@ -138,6 +144,7 @@ class ConfigManager:
         for env_var, config_path in env_mappings.items():
             env_value = os.getenv(env_var)
             if env_value is not None:
+                logger.info(f"Overriding config from environment variable: {env_var}")
                 self._set_nested_value(config_path, env_value)
 
     def _set_nested_value(self, path: list, value: str) -> None:
@@ -238,7 +245,7 @@ class ConfigManager:
 
     def validate_config(self) -> List[str]:
         """Validate configuration and return list of issues."""
-
+        logger.info("Validating configuration...")
         issues = []
 
         # Check required sections
@@ -246,11 +253,13 @@ class ConfigManager:
         for section in required_sections:
             if section not in self.config:
                 issues.append(f"Missing required section: {section}")
+                logger.warning(f"Validation issue: Missing required section: {section}")
 
         # Check ML configuration
         ml_config = self.get_ml_config()
         if 'ensemble' not in ml_config:
             issues.append("Missing ensemble configuration in machine_learning section")
+            logger.warning("Validation issue: Missing ensemble configuration in machine_learning section")
 
         # Check data paths
         data_config = self.get_data_config()
@@ -258,6 +267,12 @@ class ConfigManager:
             for dataset, path in data_config['data_paths'].items():
                 if not os.path.exists(path):
                     issues.append(f"Data path does not exist: {dataset} -> {path}")
+                    logger.warning(f"Validation issue: Data path does not exist: {dataset} -> {path}")
+        
+        if not issues:
+            logger.info("Configuration validation successful.")
+        else:
+            logger.warning(f"Configuration validation failed with {len(issues)} issues.")
 
         return issues
 
