@@ -1,0 +1,347 @@
+# Enhanced IoT BotScan Kubernetes Deployment
+# Author: Kotiwale Sumesh Singh (160124862043)
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: iot-botscan
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iot-botscan-config
+  namespace: iot-botscan
+data:
+  DATABASE_URL: "postgresql://postgres:password@postgres-service:5432/iot_botscan"
+  REDIS_URL: "redis://redis-service:6379/0"
+  LOG_LEVEL: "INFO"
+  PYTHONPATH: "/app"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: iot-botscan-secrets
+  namespace: iot-botscan
+type: Opaque
+data:
+  postgres-password: cGFzc3dvcmQ= # base64 encoded "password"
+  redis-password: "" # empty for no password
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iot-botscan-app
+  namespace: iot-botscan
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: iot-botscan-app
+  template:
+    metadata:
+      labels:
+        app: iot-botscan-app
+    spec:
+      containers:
+        - name: iot-botscan
+          image: iot-botscan:latest
+          ports:
+            - containerPort: 8000
+            - containerPort: 8001
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: iot-botscan-config
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: iot-botscan-config
+                  key: REDIS_URL
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: iot-botscan-config
+                  key: LOG_LEVEL
+            - name: PYTHONPATH
+              valueFrom:
+                configMapKeyRef:
+                  name: iot-botscan-config
+                  key: PYTHONPATH
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: data-volume
+              mountPath: /app/data
+            - name: cache-volume
+              mountPath: /app/cache
+            - name: logs-volume
+              mountPath: /app/logs
+            - name: models-volume
+              mountPath: /app/models
+      volumes:
+        - name: data-volume
+          persistentVolumeClaim:
+            claimName: iot-botscan-data-pvc
+        - name: cache-volume
+          persistentVolumeClaim:
+            claimName: iot-botscan-cache-pvc
+        - name: logs-volume
+          persistentVolumeClaim:
+            claimName: iot-botscan-logs-pvc
+        - name: models-volume
+          persistentVolumeClaim:
+            claimName: iot-botscan-models-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iot-botscan-service
+  namespace: iot-botscan
+spec:
+  selector:
+    app: iot-botscan-app
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+    - name: websocket
+      port: 8001
+      targetPort: 8001
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: iot-botscan
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:13
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: "iot_botscan"
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: iot-botscan-secrets
+                  key: postgres-password
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: iot-botscan
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: iot-botscan
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:6-alpine
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "512Mi"
+              cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: iot-botscan
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: iot-botscan-data-pvc
+  namespace: iot-botscan
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: iot-botscan-cache-pvc
+  namespace: iot-botscan
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: iot-botscan-logs-pvc
+  namespace: iot-botscan
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: iot-botscan-models-pvc
+  namespace: iot-botscan
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: iot-botscan
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: iot-botscan-ingress
+  namespace: iot-botscan
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+    - hosts:
+        - iot-botscan.example.com
+      secretName: iot-botscan-tls
+  rules:
+    - host: iot-botscan.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: iot-botscan-service
+                port:
+                  number: 8000
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: iot-botscan-service
+                port:
+                  number: 8001
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: iot-botscan-hpa
+  namespace: iot-botscan
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: iot-botscan-app
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
