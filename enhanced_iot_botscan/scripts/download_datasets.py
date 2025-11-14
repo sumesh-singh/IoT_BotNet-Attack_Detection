@@ -21,6 +21,7 @@ from typing import Dict, Any, List, Optional
 import numpy as np
 import pandas as pd
 
+
 class DatasetDownloader:
     """Downloads and prepares IoT botnet datasets."""
 
@@ -35,7 +36,7 @@ class DatasetDownloader:
                 'description': 'N-BaIoT Dataset - Network-based Detection of IoT Botnet Attacks',
                 'files': [
                     'Danmini_Doorbell.zip',
-                    'Ecobee_Thermostat.zip', 
+                    'Ecobee_Thermostat.zip',
                     'Ennio_Doorbell.zip',
                     'Philips_B120N10_Baby_Monitor.zip',
                     'Provision_PT_737E_Security_Camera.zip',
@@ -144,9 +145,11 @@ class DatasetDownloader:
 
                     # Verify extraction
                     csv_files = list(device_dir.glob('*.csv'))
-                    print(f"   Found {len(csv_files)} CSV files in {device_name}")
+                    print(
+                        f"   Found {len(csv_files)} CSV files in {device_name}")
 
-        print(f"\n✅ N-BaIoT download completed: {success_count}/{len(self.datasets['n_baiot']['files'])} devices")
+        print(
+            f"\n✅ N-BaIoT download completed: {success_count}/{len(self.datasets['n_baiot']['files'])} devices")
         return success_count == len(self.datasets['n_baiot']['files'])
 
     def download_iot_23(self) -> bool:
@@ -190,15 +193,18 @@ class DatasetDownloader:
 
         # Benign samples
         benign_data = np.random.normal(0, 1, (n_samples // 2, n_features))
-        benign_df = pd.DataFrame(benign_data, columns=[f'feature_{i}' for i in range(n_features)])
+        benign_df = pd.DataFrame(benign_data, columns=[
+                                 f'feature_{i}' for i in range(n_features)])
         benign_df.to_csv(n_baiot_dir / 'benign_traffic.csv', index=False)
 
         # Malware samples (Mirai)
         malware_data = np.random.normal(2, 1.5, (n_samples // 2, n_features))
-        malware_df = pd.DataFrame(malware_data, columns=[f'feature_{i}' for i in range(n_features)])
+        malware_df = pd.DataFrame(malware_data, columns=[
+                                  f'feature_{i}' for i in range(n_features)])
         malware_df.to_csv(n_baiot_dir / 'mirai_attacks.csv', index=False)
 
-        print(f"✅ Created sample N-BaIoT data: {n_samples} samples, {n_features} features")
+        print(
+            f"✅ Created sample N-BaIoT data: {n_samples} samples, {n_features} features")
 
         # Create sample IoT-23 data
         iot_23_dir = self.data_dir / 'iot_23'
@@ -208,7 +214,8 @@ class DatasetDownloader:
         iot_23_data = np.random.random((5000, 50))
         iot_23_labels = np.random.randint(0, 3, 5000)  # 3 classes
 
-        iot_23_df = pd.DataFrame(iot_23_data, columns=[f'feat_{i}' for i in range(50)])
+        iot_23_df = pd.DataFrame(iot_23_data, columns=[
+                                 f'feat_{i}' for i in range(50)])
         iot_23_df['label'] = iot_23_labels
         iot_23_df.to_csv(iot_23_dir / 'iot_23_sample.csv', index=False)
 
@@ -222,8 +229,10 @@ class DatasetDownloader:
         bot_iot_data = np.random.exponential(1, (8000, 30))
         bot_iot_labels = np.random.randint(0, 4, 8000)  # 4 classes
 
-        bot_iot_df = pd.DataFrame(bot_iot_data, columns=[f'f_{i}' for i in range(30)])
-        bot_iot_df['Label'] = ['Normal' if l == 0 else f'Attack_{l}' for l in bot_iot_labels]
+        bot_iot_df = pd.DataFrame(bot_iot_data, columns=[
+                                  f'f_{i}' for i in range(30)])
+        bot_iot_df['Label'] = ['Normal' if l ==
+                               0 else f'Attack_{l}' for l in bot_iot_labels]
         bot_iot_df.to_csv(bot_iot_dir / 'bot_iot_sample.csv', index=False)
 
         print(f"✅ Created sample BoT-IoT data: 8000 samples, 30 features")
@@ -254,6 +263,7 @@ class DatasetDownloader:
 
         return results
 
+
 def main():
     """Main function for command-line usage."""
 
@@ -261,7 +271,7 @@ def main():
         description="Download IoT botnet datasets for Enhanced IoT BotScan"
     )
     parser.add_argument(
-        '--data-dir', 
+        '--data-dir',
         default='./data/raw',
         help='Directory to store downloaded datasets'
     )
@@ -303,6 +313,7 @@ def main():
     else:
         print("\n⚠️ Some downloads failed. Check the logs above.")
         sys.exit(1)
+
 
 if __name__ == '__main__':
     main()
