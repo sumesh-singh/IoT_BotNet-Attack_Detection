@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 import logging
+import random
 from pathlib import Path
 
 # Add src to path
@@ -26,6 +27,8 @@ from data.data_loader import DataLoader
 from evaluation.performance_evaluator import PerformanceEvaluator
 from utils.config_manager import ConfigManager
 from utils.logger import setup_logging
+from core.preprocessing.feature_engineer import FeatureEngineer
+from core.preprocessing.scaler import Scaler
 
 class ModelTrainer:
     """Main training orchestrator for Enhanced IoT BotScan."""
@@ -43,10 +46,15 @@ class ModelTrainer:
 
         # Initialize components
         self.data_loader = DataLoader(self.config.get('data', {}))
-        self.ensemble = HybridEnsemble(config_path)
+        self.ensemble = HybridEnsemble(self.config)
         self.adversarial_trainer = AdversarialTrainer(self.config.get('adversarial_training', {}))
         self.drift_detector = DriftDetector(self.config.get('concept_drift', {}))
         self.evaluator = PerformanceEvaluator(self.config.get('evaluation', {}))
+
+        # Global seeds for reproducibility
+        seed = 42
+        random.seed(seed)
+        np.random.seed(seed)
 
         # Training state
         self.datasets = {}
@@ -84,22 +92,41 @@ class ModelTrainer:
         X = dataset['features']
         y = dataset['labels']
 
-        # Train-test split
+        # Split data: 70/15/15
         from sklearn.model_selection import train_test_split
+        X_df = pd.DataFrame(X, columns=[f'feat_{i}' for i in range(X.shape[1])])
+        y_sr = pd.Series(y)
 
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
+        X_train_full, X_temp, y_train_full, y_temp = train_test_split(
+            X_df, y_sr, test_size=0.30, random_state=42, stratify=y_sr
+        )
+        X_val, X_test, y_val, y_test = train_test_split(
+            X_temp, y_temp, test_size=0.50, random_state=42, stratify=y_temp
         )
 
-        # Further split training into train/validation
-        X_train_split, X_val, y_train_split, y_val = train_test_split(
-            X_train, y_train, test_size=0.2, random_state=42, stratify=y_train
-        )
+        # Feature engineering fitted on train, applied to val/test
+        fe_config = self.config.get('feature_engineering', {
+            'create_statistical_features': True,
+            'create_interaction_features': True,
+            'create_polynomial_features': False,
+            'feature_selection_method': 'mutual_info',
+            'n_features_select': min(50, X_train_full.shape[1])
+        })
+        feature_engineer = FeatureEngineer(fe_config)
+        X_train_eng = feature_engineer.engineer_features(X_train_full, y_train_full)
+        X_val_eng = feature_engineer.transform_new_data(X_val)
+        X_test_eng = feature_engineer.transform_new_data(X_test)
 
-        self.logger.info(f"Data split - Train: {len(X_train_split)}, "
-                        f"Val: {len(X_val)}, Test: {len(X_test)}")
+        # Scaling fitted on train, applied to val/test
+        scaler_config = self.config.get('scaling', {'method': 'standard', 'scale_features': True})
+        scaler = Scaler(scaler_config)
+        X_train_scaled, _ = scaler.fit_transform(X_train_eng)
+        X_val_scaled, _ = scaler.transform(X_val_eng)
+        X_test_scaled, _ = scaler.transform(X_test_eng)
 
-        return X_train_split, X_val, X_test, y_train_split, y_val, y_test
+        self.logger.info(f"Data split - Train: {len(X_train_scaled)}, Val: {len(X_val_scaled)}, Test: {len(X_test_scaled)}")
+
+        return X_train_scaled.values.astype(np.float32), X_val_scaled.values.astype(np.float32), X_test_scaled.values.astype(np.float32), y_train_full.values, y_val.values, y_test.values
 
     def train_baseline_models(self, dataset_name: str = 'n_baiot') -> dict:
         """Train baseline ensemble models without adversarial training."""
@@ -109,10 +136,15 @@ class ModelTrainer:
         # Prepare data
         X_train, X_val, X_test, y_train, y_val, y_test = self.prepare_training_data(dataset_name)
 
-        # Add reference data for drift detection
-        self.drift_detector.add_reference_data(X_train)
+        self.drift_detector.set_reference_data(X_train)
+
+        # Class balance via random oversampling
+        X_train, y_train = self._balance_classes(X_train, y_train)
 
         # Train ensemble
+        # Enable hyperparameter optimization in base models
+        self.ensemble.optimize_base_models = True
+
         training_results = self.ensemble.train(
             X=pd.DataFrame(X_train),
             y=pd.Series(y_train),
@@ -125,6 +157,9 @@ class ModelTrainer:
             pd.DataFrame(X_test), 
             pd.Series(y_test)
         )
+
+        # Save evaluation artifacts
+        self._save_evaluation_artifacts(dataset_name, test_results)
 
         baseline_results = {
             'dataset': dataset_name,
@@ -148,9 +183,13 @@ class ModelTrainer:
         X_train, X_val, X_test, y_train, y_val, y_test = self.prepare_training_data(dataset_name)
 
         # Create a fresh ensemble for adversarial training
-        robust_ensemble = HybridEnsemble(self.config_manager.config_path)
+        robust_ensemble = HybridEnsemble(self.config)
+        robust_ensemble.optimize_base_models = True
 
         # Train with adversarial examples
+        # Class balance via random oversampling
+        X_train, y_train = self._balance_classes(X_train, y_train)
+
         adversarial_results = self.adversarial_trainer.train_robust_model(
             robust_ensemble,
             X_train, y_train,
@@ -170,6 +209,9 @@ class ModelTrainer:
             pd.DataFrame(X_test),
             pd.Series(y_test)
         )
+
+        # Save evaluation artifacts
+        self._save_evaluation_artifacts(dataset_name + "_robust", test_results)
 
         robust_model_results = {
             'dataset': dataset_name,
@@ -211,7 +253,7 @@ class ModelTrainer:
                 X_test, y_test = test_data['features'], test_data['labels']
 
                 # Train model
-                cross_ensemble = HybridEnsemble(self.config_manager.config_path)
+                cross_ensemble = HybridEnsemble(self.config)
                 cross_ensemble.train(pd.DataFrame(X_train), pd.Series(y_train))
 
                 # Evaluate
@@ -228,6 +270,54 @@ class ModelTrainer:
 
         self.training_results['cross_dataset_validation'] = cross_validation_results
         return cross_validation_results
+
+    def _balance_classes(self, X: np.ndarray, y: np.ndarray) -> tuple:
+        """Randomly oversample minority classes to match majority count."""
+        unique, counts = np.unique(y, return_counts=True)
+        max_count = counts.max()
+        X_balanced = []
+        y_balanced = []
+        rng = np.random.default_rng(42)
+        for cls, cnt in zip(unique, counts):
+            idx = np.where(y == cls)[0]
+            X_cls = X[idx]
+            y_cls = y[idx]
+            if cnt < max_count:
+                add_n = max_count - cnt
+                add_idx = rng.choice(idx, size=add_n, replace=True)
+                X_balanced.append(np.concatenate([X_cls, X[add_idx]], axis=0))
+                y_balanced.append(np.concatenate([y_cls, y[add_idx]], axis=0))
+            else:
+                X_balanced.append(X_cls)
+                y_balanced.append(y_cls)
+        X_new = np.concatenate(X_balanced, axis=0)
+        y_new = np.concatenate(y_balanced, axis=0)
+        # Shuffle
+        perm = rng.permutation(len(y_new))
+        return X_new[perm], y_new[perm]
+
+    def _save_evaluation_artifacts(self, eval_name: str, results: dict) -> None:
+        """Save evaluation report and plots to results directory."""
+        output_dir = Path('./data/results')
+        plots_dir = output_dir / 'plots'
+        plots_dir.mkdir(parents=True, exist_ok=True)
+        # Save textual report
+        report_str = self.evaluator.generate_evaluation_report(results)
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        report_file = output_dir / f'{eval_name}_report_{ts}.txt'
+        with open(report_file, 'w') as f:
+            f.write(report_str)
+        # Save confusion matrix
+        y_true = results.get('true_labels', [])
+        y_pred = results.get('predictions', [])
+        if y_true and y_pred:
+            cm_path = plots_dir / f'{eval_name}_confusion_matrix_{ts}.png'
+            self.evaluator.plot_confusion_matrix(y_true, y_pred, save_path=str(cm_path))
+        # Save ROC curve for binary if available
+        y_proba = results.get('prediction_probabilities')
+        if y_proba:
+            roc_path = plots_dir / f'{eval_name}_roc_{ts}.png'
+            self.evaluator.plot_roc_curve(y_true, np.array(y_proba), save_path=str(roc_path))
 
     def test_concept_drift_detection(self, dataset_name: str = 'n_baiot') -> dict:
         """Test concept drift detection capabilities."""

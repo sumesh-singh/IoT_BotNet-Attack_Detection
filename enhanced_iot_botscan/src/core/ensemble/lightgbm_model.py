@@ -76,7 +76,11 @@ class LightGBMModel:
         if optimize_hyperparams:
             self._optimize_hyperparameters(X, y)
 
-        # Initialize model
+        n_classes = len(np.unique(y))
+        if n_classes > 2:
+            self.params.update({'objective': 'multiclass', 'num_class': n_classes, 'metric': 'multi_logloss'})
+        else:
+            self.params.update({'objective': 'binary', 'metric': 'binary_logloss'})
         self.model = lgb.LGBMClassifier(**self.params)
 
         # Cross-validation during training

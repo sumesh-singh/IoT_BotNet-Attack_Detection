@@ -1,0 +1,21 @@
+# Ignore raw datasets (do not upload dataset files to GitHub)
+# Path is relative to repository root. This prevents committing large or sensitive data.
+data/raw/
+data/processed/
+data/results/
+data/results/models/
+data/results/plots/
+logs/
+cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ipynb_checkpoints/
+.vscode/
+.idea/
+.env
+*.pkl
+*.joblib
+.DS_Store

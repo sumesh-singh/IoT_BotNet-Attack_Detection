@@ -16,7 +16,7 @@ from typing import Dict, Any, Optional
 def setup_logging(config: Dict[str, Any] = None) -> None:
     """Setup logging configuration for the system."""
 
-    if config is None:
+    if not config or not isinstance(config, dict) or 'version' not in config:
         config = get_default_logging_config()
 
     # Create logs directory

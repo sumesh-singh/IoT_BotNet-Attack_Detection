@@ -72,7 +72,11 @@ class XGBoostModel:
         if optimize_hyperparams:
             self._optimize_hyperparameters(X, y)
 
-        # Initialize model
+        n_classes = len(np.unique(y))
+        if n_classes > 2:
+            self.params.update({'objective': 'multi:softprob', 'num_class': n_classes, 'eval_metric': 'mlogloss'})
+        else:
+            self.params.update({'objective': 'binary:logistic', 'eval_metric': 'logloss'})
         self.model = xgb.XGBClassifier(**self.params)
 
         # Cross-validation during training

@@ -56,6 +56,9 @@ class DataLoader:
                 'Provision_PT_838_Security_Camera', 'Samsung_SNH_1011_N_Webcam',
                 'SimpleHome_XCS7_1002_WHT_Security_Camera', 'SimpleHome_XCS7_1003_WHT_Security_Camera'
             ]
+            sample_dev_path = os.path.join(n_baiot_path, 'Sample_Device')
+            if os.path.exists(sample_dev_path):
+                device_types.append('Sample_Device')
 
         print(f"Loading N-BaIoT dataset for device types: {device_types}")
 
@@ -226,8 +229,8 @@ class DataLoader:
 
         print("Loading BoT-IoT dataset...")
 
-        # Find CSV files
-        csv_files = glob.glob(os.path.join(bot_iot_path, "*.csv"))
+        sample_files = glob.glob(os.path.join(bot_iot_path, "*sample*.csv"))
+        csv_files = sample_files if sample_files else glob.glob(os.path.join(bot_iot_path, "*.csv"))
 
         if not csv_files:
             raise FileNotFoundError(f"No CSV files found in {bot_iot_path}")

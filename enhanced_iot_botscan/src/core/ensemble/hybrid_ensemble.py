@@ -88,7 +88,10 @@ class HybridEnsemble:
                 logger.error(f"Failed to train {model_name}: {e}")
                 base_model_results[model_name] = {'error': str(e)}
 
-        # Generate stacking data if using stacking
+        n_classes = len(np.unique(y))
+        if n_classes > 2:
+            self.use_stacking = False
+
         if self.use_stacking:
             logger.info("Generating stacking data...")
 
@@ -125,7 +128,6 @@ class HybridEnsemble:
             )
 
         else:
-            # Simple averaging ensemble
             logger.info("Using simple averaging ensemble")
             meta_results = {'model_type': 'SimpleAveraging'}
 
@@ -140,12 +142,10 @@ class HybridEnsemble:
             'training_timestamp': datetime.now().isoformat()
         }
 
-        # Calculate ensemble performance
+        self.is_trained = True
         if validation_data:
             ensemble_accuracy = self._evaluate_ensemble(X_val, y_val)
             ensemble_results['ensemble_validation_accuracy'] = ensemble_accuracy
-
-        self.is_trained = True
         self.training_history.append(ensemble_results)
 
         logger.info("Hybrid Ensemble training completed")
@@ -176,33 +176,30 @@ class HybridEnsemble:
             return self.meta_learner.predict(base_pred_array)
 
         else:
-            # Simple averaging
-            predictions = []
+            probabilities = []
             weights = []
 
             for model_name, model in self.base_models.items():
                 if hasattr(model, 'is_trained') and model.is_trained:
-                    pred = model.predict(X)
-                    predictions.append(pred)
-
-                    # Get model weight (could be based on validation performance)
-                    weight = 1.0  # Equal weights for now
+                    proba = model.predict_proba(X)
+                    probabilities.append(proba)
+                    weight = 1.0
                     weights.append(weight)
 
-            if not predictions:
+            if not probabilities:
                 raise ValueError("No trained base models available")
 
-            # Weighted average
-            predictions_array = np.array(predictions)
+            probabilities_array = np.array(probabilities)
             weights_array = np.array(weights)
-            weights_array = weights_array / weights_array.sum()  # Normalize weights
+            weights_array = weights_array / weights_array.sum()
 
-            # Weighted average predictions
-            ensemble_predictions = np.average(
-                predictions_array, axis=0, weights=weights_array)
+            ensemble_probabilities = np.average(
+                probabilities_array, axis=0, weights=weights_array)
 
-            # Convert to integer predictions
-            return np.round(ensemble_predictions).astype(int)
+            if ensemble_probabilities.shape[1] > 1:
+                return np.argmax(ensemble_probabilities, axis=1)
+            else:
+                return (ensemble_probabilities[:, 0] > 0.5).astype(int)
 
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
         """Get prediction probabilities from hybrid ensemble."""

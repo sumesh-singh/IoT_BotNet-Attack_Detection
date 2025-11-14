@@ -17,7 +17,10 @@ from sklearn.model_selection import StratifiedKFold, cross_val_score
 import logging
 from datetime import datetime
 import matplotlib.pyplot as plt
-import seaborn as sns
+try:
+    import seaborn as sns
+except Exception:
+    sns = None
 
 class PerformanceEvaluator:
     """Comprehensive performance evaluation for IoT botnet detection models."""
@@ -123,8 +126,11 @@ class PerformanceEvaluator:
             cm = confusion_matrix(y_true, y_pred)
 
             plt.figure(figsize=(8, 6))
-            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                       xticklabels=class_names, yticklabels=class_names)
+            if sns is not None:
+                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                           xticklabels=class_names, yticklabels=class_names)
+            else:
+                plt.imshow(cm, cmap='Blues')
             plt.title('Confusion Matrix')
             plt.ylabel('True Label')
             plt.xlabel('Predicted Label')
