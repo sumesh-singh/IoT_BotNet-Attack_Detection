@@ -172,10 +172,13 @@ class SklearnModelWrapper(nn.Module):
 
         if hasattr(self, 'coef'):
             # Linear model
-            if len(self.coef.shape) == 1:
+            if len(self.coef.shape) == 1 or (len(self.coef.shape) == 2 and self.coef.shape[0] == 1):
                 # Binary classification
-                logits = torch.matmul(x, self.coef) + self.intercept
-                return torch.stack([-logits, logits], dim=1)
+                if len(self.coef.shape) == 2:
+                    logits = torch.matmul(x, self.coef.T) + self.intercept
+                else:
+                    logits = torch.matmul(x, self.coef) + self.intercept
+                return torch.cat([-logits, logits], dim=1)
             else:
                 # Multi-class classification
                 logits = torch.matmul(x, self.coef.T) + self.intercept

@@ -31,9 +31,7 @@ class PageHinkleyDriftDetector:
         self.alpha = self.config.get('alpha', 0.05)
 
         # State variables
-        self.cumulative_sum = 0
-        self.min_cumulative_sum = 0
-        self.max_cumulative_sum = 0
+        self.feature_states = {}
         self.sample_count = 0
         self.reference_mean = None
         self.reference_std = None
@@ -59,9 +57,14 @@ class PageHinkleyDriftDetector:
         self.reference_std = np.std(X, axis=0)
 
         # Reset state
-        self.cumulative_sum = 0
-        self.min_cumulative_sum = 0
-        self.max_cumulative_sum = 0
+        self.feature_states = {}
+        n_features = X.shape[1] if len(X.shape) > 1 else 1
+        for i in range(n_features):
+            self.feature_states[i] = {
+                'cumulative_sum': 0,
+                'min_cumulative_sum': 0,
+                'max_cumulative_sum': 0
+            }
         self.sample_count = 0
 
         logger.info(
@@ -69,7 +72,7 @@ class PageHinkleyDriftDetector:
 
     def detect_drift(self, X_new: np.ndarray, y_new: Optional[np.ndarray] = None) -> Dict[str, Any]:
         """
-        Detect concept drift in new data using Page-Hinkley test.
+        Detect concept drift in new data using Page-Hinkley test (Batch Mode).
 
         Args:
             X_new: New data to test for drift
@@ -95,7 +98,7 @@ class PageHinkleyDriftDetector:
         logger.info(f"Detecting drift in {len(X_new)} new samples")
 
         # Detect drift in features
-        feature_drift_results = self._detect_feature_drift(X_new)
+        feature_drift_results = self._detect_feature_drift(X_new, update_state=False)
 
         # Detect drift in labels if available
         label_drift_results = None
@@ -124,7 +127,7 @@ class PageHinkleyDriftDetector:
 
         return results
 
-    def _detect_feature_drift(self, X_new: np.ndarray) -> Dict[str, Any]:
+    def _detect_feature_drift(self, X_new: np.ndarray, update_state: bool = False) -> Dict[str, Any]:
         """Detect drift in feature distributions using Page-Hinkley test."""
 
         n_features = X_new.shape[1] if len(X_new.shape) > 1 else 1
@@ -140,7 +143,8 @@ class PageHinkleyDriftDetector:
             try:
                 # Calculate Page-Hinkley statistic for this feature
                 ph_statistic, ph_detected = self._calculate_page_hinkley_statistic(
-                    X_new[:, i], self.reference_mean[i], self.reference_std[i]
+                    X_new[:, i], self.reference_mean[i], self.reference_std[i],
+                    feature_index=i, update_state=update_state
                 )
 
                 feature_result = {
@@ -179,16 +183,32 @@ class PageHinkleyDriftDetector:
             'feature_results': feature_results
         }
 
-    def _calculate_page_hinkley_statistic(self, data: np.ndarray, ref_mean: float, ref_std: float) -> Tuple[float, bool]:
+    def _calculate_page_hinkley_statistic(self, data: np.ndarray, ref_mean: float, ref_std: float, 
+                                          feature_index: int = None, update_state: bool = False) -> Tuple[float, bool]:
         """Calculate Page-Hinkley statistic for a single feature."""
 
         # Normalize data using reference statistics
         normalized_data = (data - ref_mean) / (ref_std + 1e-8)
 
-        # Calculate Page-Hinkley statistic
-        ph_statistic = 0
-        min_ph = 0
-        max_ph = 0
+        # Initialize state
+        if update_state and feature_index is not None:
+            if feature_index not in self.feature_states:
+                self.feature_states[feature_index] = {
+                    'cumulative_sum': 0,
+                    'min_cumulative_sum': 0,
+                    'max_cumulative_sum': 0
+                }
+            state = self.feature_states[feature_index]
+            ph_statistic = state['cumulative_sum']
+            min_ph = state['min_cumulative_sum']
+            max_ph = state['max_cumulative_sum']
+        else:
+            ph_statistic = 0
+            min_ph = 0
+            max_ph = 0
+
+        drift_detected = False
+        final_ph = 0
 
         for value in normalized_data:
             # Update cumulative sum
@@ -200,9 +220,17 @@ class PageHinkleyDriftDetector:
 
             # Check for drift
             if ph_statistic - min_ph > self.threshold:
-                return max_ph - min_ph, True
+                drift_detected = True
+                final_ph = max_ph - min_ph
+                # If drift detected, we might want to reset or continue?
+                # Usually reset. But here we just flag it.
+                
+        if update_state and feature_index is not None:
+            state['cumulative_sum'] = ph_statistic
+            state['min_cumulative_sum'] = min_ph
+            state['max_cumulative_sum'] = max_ph
 
-        return max_ph - min_ph, False
+        return max_ph - min_ph, drift_detected
 
     def _detect_label_drift(self, y_new: np.ndarray) -> Dict[str, Any]:
         """Detect drift in label distributions using Page-Hinkley test."""
@@ -286,43 +314,9 @@ class PageHinkleyDriftDetector:
             X_new = X_new.reshape(-1, 1)
 
         n_features = X_new.shape[1]
-        feature_results = []
-        drift_count = 0
-
-        for i in range(n_features):
-            try:
-                # Calculate Page-Hinkley statistic for this feature
-                ph_statistic, ph_detected = self._calculate_page_hinkley_statistic(
-                    X_new[:, i], self.reference_mean[i], self.reference_std[i]
-                )
-
-                feature_result = {
-                    'feature_index': i,
-                    'ph_statistic': ph_statistic,
-                    'drift_detected': ph_detected,
-                    'reference_mean': self.reference_mean[i],
-                    'reference_std': self.reference_std[i],
-                    'new_mean': np.mean(X_new[:, i]),
-                    'new_std': np.std(X_new[:, i])
-                }
-
-                feature_results.append(feature_result)
-
-                if ph_detected:
-                    drift_count += 1
-
-            except Exception as e:
-                logger.error(
-                    f"Error in Page-Hinkley test for feature {i}: {e}")
-                feature_results.append({
-                    'feature_index': i,
-                    'error': str(e),
-                    'drift_detected': False
-                })
-
-        # Calculate overall feature drift
-        drift_ratio = drift_count / n_features
-        overall_feature_drift = drift_ratio >= 0.5
+        
+        # Detect drift in features with state update
+        feature_drift_results = self._detect_feature_drift(X_new, update_state=True)
 
         # Detect label drift if available
         label_drift_results = None
@@ -331,20 +325,13 @@ class PageHinkleyDriftDetector:
 
         # Determine overall drift
         drift_detected = self._determine_overall_drift(
-            {'overall_drift': overall_feature_drift, 'drift_ratio': drift_ratio},
-            label_drift_results
+            feature_drift_results, label_drift_results
         )
 
         # Create results
         results = {
             'drift_detected': drift_detected,
-            'feature_drift': {
-                'overall_drift': overall_feature_drift,
-                'drift_ratio': drift_ratio,
-                'drift_count': drift_count,
-                'total_features': n_features,
-                'feature_results': feature_results
-            },
+            'feature_drift': feature_drift_results,
             'label_drift': label_drift_results,
             'n_samples': len(X_new),
             'n_features': n_features,
@@ -415,9 +402,7 @@ class PageHinkleyDriftDetector:
         self.reference_mean = None
         self.reference_std = None
         self.drift_history = []
-        self.cumulative_sum = 0
-        self.min_cumulative_sum = 0
-        self.max_cumulative_sum = 0
+        self.feature_states = {}
         self.sample_count = 0
 
         logger.info("Drift detector reset")

@@ -141,6 +141,11 @@ class LightGBMModel:
 
         return results
 
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> 'LightGBMModel':
+        """Scikit-learn compatible fit method."""
+        self.train(X, y)
+        return self
+
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         """Make predictions on new data."""
 
