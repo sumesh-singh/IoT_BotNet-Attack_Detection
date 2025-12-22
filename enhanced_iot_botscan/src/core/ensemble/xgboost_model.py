@@ -74,13 +74,22 @@ class XGBoostModel:
 
         n_classes = len(np.unique(y))
         if n_classes > 2:
-            self.params.update({'objective': 'multi:softprob', 'num_class': n_classes, 'eval_metric': 'mlogloss'})
+            self.params.update({
+                'objective': 'multi:softprob',
+                'num_class': n_classes,
+                'eval_metric': 'mlogloss'
+            })
+            # Ensure label encoder is used if needed, but XGBoost handles 0,1,2... fine
         else:
-            self.params.update({'objective': 'binary:logistic', 'eval_metric': 'logloss'})
+            self.params.update({
+                'objective': 'binary:logistic',
+                'eval_metric': 'logloss'
+            })
+        
         self.model = xgb.XGBClassifier(**self.params)
 
         # Cross-validation during training
-        cv_scores = cross_val_score(self.model, X, y, cv=5, scoring='accuracy')
+        cv_scores = cross_val_score(self.model, X, y, cv=3, scoring='accuracy')
 
         # Prepare validation data for early stopping if available
         eval_set = None
@@ -89,7 +98,7 @@ class XGBoostModel:
             eval_set = [(X_val, y_val)]
             # Add early stopping parameters
             self.model.set_params(
-                early_stopping_rounds=50, eval_metric='logloss')
+                early_stopping_rounds=50)
 
         # Train model
         if eval_set:
@@ -167,39 +176,42 @@ class XGBoostModel:
         return self.feature_importance_.head(top_n)
 
     def _optimize_hyperparameters(self, X: pd.DataFrame, y: pd.Series) -> None:
-        """Perform hyperparameter optimization using GridSearchCV."""
+        """Perform hyperparameter optimization using RandomizedSearchCV."""
+        from sklearn.model_selection import RandomizedSearchCV
 
         logger.info("Starting hyperparameter optimization for XGBoost")
 
-        # Define parameter grid
+        # Define parameter grid - Reduced for speed
         param_grid = {
-            'n_estimators': [200, 300, 400],
-            'max_depth': [4, 6, 8],
-            'learning_rate': [0.05, 0.1, 0.15],
-            'subsample': [0.7, 0.8, 0.9],
-            'colsample_bytree': [0.7, 0.8, 0.9],
-            'reg_alpha': [0, 0.1, 0.5],
-            'reg_lambda': [0.5, 1.0, 1.5]
+            'n_estimators': [100, 200, 300],
+            'max_depth': [4, 6],
+            'learning_rate': [0.05, 0.1],
+            'subsample': [0.8],
+            'colsample_bytree': [0.8],
+            'reg_alpha': [0, 0.1],
+            'reg_lambda': [1.0]
         }
 
-        # Grid search with cross-validation
-        grid_search = GridSearchCV(
+        # Randomized search with cross-validation
+        random_search = RandomizedSearchCV(
             xgb.XGBClassifier(random_state=42, n_jobs=-1),
-            param_grid,
+            param_distributions=param_grid,
+            n_iter=10, # Limit iterations
             cv=3,
             scoring='accuracy',
             n_jobs=-1,
-            verbose=1
+            verbose=1,
+            random_state=42
         )
 
-        grid_search.fit(X, y)
+        random_search.fit(X, y)
 
         # Update parameters with best found
-        self.params.update(grid_search.best_params_)
+        self.params.update(random_search.best_params_)
 
-        logger.info(f"Best parameters found: {grid_search.best_params_}")
+        logger.info(f"Best parameters found: {random_search.best_params_}")
         logger.info(
-            f"Best cross-validation score: {grid_search.best_score_:.4f}")
+            f"Best cross-validation score: {random_search.best_score_:.4f}")
 
     def save_model(self, filepath: str) -> None:
         """Save trained model to disk."""

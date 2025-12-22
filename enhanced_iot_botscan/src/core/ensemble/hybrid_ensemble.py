@@ -30,6 +30,7 @@ class HybridEnsemble:
 
         self.config = config or {}
         self.is_trained = False
+        self.label_encoder = None
         self.training_history = []
 
         # Initialize base models
@@ -330,6 +331,7 @@ class HybridEnsemble:
             'use_stacking': self.use_stacking,
             'training_history': self.training_history,
             'is_trained': self.is_trained,
+            'label_encoder': self.label_encoder,
             'config': self.config
         }
 
@@ -367,6 +369,7 @@ class HybridEnsemble:
         self.use_stacking = ensemble_data['use_stacking']
         self.training_history = ensemble_data['training_history']
         self.is_trained = ensemble_data['is_trained']
+        self.label_encoder = ensemble_data.get('label_encoder')
         self.config = ensemble_data['config']
 
         logger.info(f"Hybrid Ensemble loaded from {filepath}")

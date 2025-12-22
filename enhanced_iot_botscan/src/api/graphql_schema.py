@@ -119,6 +119,26 @@ class AdversarialTestInput(InputObjectType):
     test_samples = Int()
 
 
+
+class DashboardSummaryType(ObjectType):
+    """Dashboard summary data type."""
+    total_threats = Int()
+    active_models = Int()
+    average_accuracy = Float()
+    drift_alerts = Int()
+    system_status = String()
+    last_updated = DateTime()
+
+
+class AnalyticsDataType(ObjectType):
+    """Analytics data type."""
+    performance_metrics = List(ModelPerformanceType)
+    robustness_metrics = List(AdversarialTestType)
+    drift_metrics = List(ConceptDriftType)
+    time_range = String()
+    generated_at = DateTime()
+
+
 class Query(ObjectType):
     """Root query type."""
 
@@ -155,28 +175,14 @@ class Query(ObjectType):
     alert = Field(AlertType, alert_id=String(required=True))
 
     # Dashboard queries
-    dashboard_summary = Field('DashboardSummaryType')
-    analytics_data = Field('AnalyticsDataType',
+    dashboard_summary = Field(DashboardSummaryType)
+    analytics_data = Field(AnalyticsDataType,
                            time_range=String(), metric=String())
 
 
-class DashboardSummaryType(ObjectType):
-    """Dashboard summary data type."""
-    total_threats = Int()
-    active_models = Int()
-    average_accuracy = Float()
-    drift_alerts = Int()
-    system_status = String()
-    last_updated = DateTime()
 
 
-class AnalyticsDataType(ObjectType):
-    """Analytics data type."""
-    performance_metrics = List(ModelPerformanceType)
-    robustness_metrics = List(AdversarialTestType)
-    drift_metrics = List(ConceptDriftType)
-    time_range = String()
-    generated_at = DateTime()
+
 
 
 class ThreatDetectionMutation(Mutation):

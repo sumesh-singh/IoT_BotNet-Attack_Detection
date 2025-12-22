@@ -21,7 +21,7 @@ from .graphql_schema import schema
 from .graphql_resolvers import GraphQLResolvers
 from .websocket_handler import WebSocketManager
 import graphene
-from starlette.graphql import GraphQLApp
+from stargql import GraphQL as GraphQLApp
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

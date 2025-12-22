@@ -6,18 +6,8 @@ import plotly.express as px
 from typing import Dict, Any, List
 
 def load_css():
-    """Load custom CSS."""
-    st.markdown("""
-        <style>
-        .stMetric {
-            background-color: #ffffff;
-            border: 1px solid #e6e9ef;
-            padding: 15px;
-            border-radius: 5px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
-        </style>
-    """, unsafe_allow_html=True)
+    """Deprecated: CSS is now loaded globally in app.py"""
+    pass
 
 def render_header(title: str, subtitle: str = ""):
     """Render page header."""

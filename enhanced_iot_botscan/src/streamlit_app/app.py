@@ -4,7 +4,7 @@ import os
 import sys
 
 # Add src to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 st.set_page_config(
     page_title="Enhanced IoT BotScan",
@@ -13,27 +13,13 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
-st.markdown("""
-<style>
-    .reportview-container {
-        background: #f0f2f6;
-    }
-    .sidebar .sidebar-content {
-        background: #ffffff;
-    }
-    h1 {
-        color: #1f77b4;
-    }
-    .stMetric {
-        background-color: #ffffff;
-        border: 1px solid #e6e9ef;
-        padding: 15px;
-        border-radius: 5px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-</style>
-""", unsafe_allow_html=True)
+# Load Custom CSS
+def load_css(file_name):
+    with open(file_name) as f:
+        st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+
+css_path = os.path.join(os.path.dirname(__file__), 'assets', 'custom.css')
+load_css(css_path)
 
 def main():
     with st.sidebar:
@@ -42,8 +28,8 @@ def main():
         
         selected = option_menu(
             "Navigation",
-            ["Dashboard", "Analytics", "Training", "Inference"],
-            icons=['speedometer2', 'graph-up', 'cpu', 'search'],
+            ["Dashboard", "Analytics", "Training", "Adversarial", "Inference"],
+            icons=['speedometer2', 'graph-up', 'cpu', 'shield-lock', 'search'],
             menu_icon="cast",
             default_index=0,
         )
@@ -52,16 +38,19 @@ def main():
 
     # Routing
     if selected == "Dashboard":
-        import pages.Dashboard as dashboard
+        import views.Dashboard as dashboard
         dashboard.app()
     elif selected == "Analytics":
-        import pages.Analytics as analytics
+        import views.Analytics as analytics
         analytics.app()
     elif selected == "Training":
-        import pages.Training as training
+        import views.Training as training
         training.app()
+    elif selected == "Adversarial":
+        import views.Adversarial as adversarial
+        adversarial.app()
     elif selected == "Inference":
-        import pages.Inference as inference
+        import views.Inference as inference
         inference.app()
 
 if __name__ == "__main__":

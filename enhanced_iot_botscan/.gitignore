@@ -1,21 +1,118 @@
-# Ignore raw datasets (do not upload dataset files to GitHub)
-# Path is relative to repository root. This prevents committing large or sensitive data.
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.agent/
+
+
+# Virtual Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv
+venv
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Streamlit
+.streamlit/secrets.toml
+.streamlit/config.toml
+
+# Model & Data
 data/raw/
 data/processed/
 data/results/
-data/results/models/
-data/results/plots/
+models/*.joblib
+models/*.pkl
+models/*.h5
+models/*.keras
+*.model
+
+# Logs
 logs/
-cache/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache/
-.ipynb_checkpoints/
+*.log
+
+# OS Generated
+.DS_Store
+.DS_Store?
+._*
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs
 .vscode/
 .idea/
+*.swp
+*.swo
+
+# Project Specific
+config/local_config.yaml
 .env
-*.pkl
-*.joblib
-.DS_Store
+test_output.txt
+
+# Migration Artifacts
+backup_*/
+MIGRATION_REPORT.txt
+migrate_project.py
+app_fixed.py
+debug_import.py
+start_backend.sh
+start_frontend.sh
+start_all.sh
+mcp_config.json
+
+# TestSprite Artifacts
+testsprite_tests/tmp/
+testsprite_tests/*.json
+testsprite_tests/*.html
+testsprite_tests/TC*.py
+testsprite-mcp-test-report.md
+node_modules/
+.benchmarks/
