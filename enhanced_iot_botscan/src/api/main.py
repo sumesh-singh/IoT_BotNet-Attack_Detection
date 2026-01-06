@@ -17,16 +17,29 @@ from fastapi.requests import Request
 import uvicorn
 from contextlib import asynccontextmanager
 
-from .graphql_schema import schema
-from .graphql_resolvers import GraphQLResolvers
+from pathlib import Path
+import os
+import uuid
+import json
+from datetime import datetime
+from dataclasses import dataclass
+
+from .schema import schema
 from .websocket_handler import WebSocketManager
-import graphene
-from stargql import GraphQL as GraphQLApp
+from strawberry.fastapi import GraphQLRouter
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+@dataclass
+class ClientConnection:
+    websocket: WebSocket
+    client_id: str
+    subscribed_channels: set
+    connected_at: datetime
+    last_activity: datetime
 
 class APIServer:
     """Main API server combining GraphQL and WebSocket functionality."""
@@ -42,7 +55,7 @@ class APIServer:
         )
 
         # Initialize components
-        self.graphql_resolvers = GraphQLResolvers(config)
+        # self.graphql_resolvers = GraphQLResolvers(config) # Removed: Logic moved to schema.py/mock_data.py
         self.websocket_manager = WebSocketManager(config)
 
         # Setup CORS
@@ -113,24 +126,55 @@ class APIServer:
         @self.app.get("/dashboard")
         async def dashboard():
             """Serve dashboard page."""
-            return HTMLResponse(open("web/dashboard.html").read())
+            try:
+                # Use robust path handling to find the web directory
+                # Try relative to current directory first
+                dashboard_path = Path("web/dashboard.html")
+                if not dashboard_path.exists():
+                     # Try relative to the package root if running from elsewhere
+                     # Assuming typical structure: project_root/web
+                     # and project_root/src/api/main.py
+                     current_file = Path(__file__).resolve()
+                     project_root = current_file.parent.parent.parent
+                     dashboard_path = project_root / "web" / "dashboard.html"
+                
+                if dashboard_path.exists():
+                    return HTMLResponse(dashboard_path.read_text(encoding='utf-8'))
+                else:
+                    logger.error(f"Dashboard file not found at: {dashboard_path}")
+                    raise HTTPException(status_code=404, detail="Dashboard template not found")
+            except Exception as e:
+                logger.error(f"Error serving dashboard: {e}")
+                raise HTTPException(status_code=500, detail="Internal server error")
 
         @self.app.get("/analytics")
         async def analytics():
             """Serve analytics page."""
-            return HTMLResponse(open("web/analytics.html").read())
+            try:
+                analytics_path = Path("web/analytics.html")
+                if not analytics_path.exists():
+                     current_file = Path(__file__).resolve()
+                     project_root = current_file.parent.parent.parent
+                     analytics_path = project_root / "web" / "analytics.html"
+
+                if analytics_path.exists():
+                    return HTMLResponse(analytics_path.read_text(encoding='utf-8'))
+                else:
+                    logger.error(f"Analytics file not found at: {analytics_path}")
+                    raise HTTPException(status_code=404, detail="Analytics template not found")
+            except Exception as e:
+                logger.error(f"Error serving analytics: {e}")
+                raise HTTPException(status_code=500, detail="Internal server error")
 
     def setup_graphql(self):
         """Setup GraphQL endpoint."""
 
         # Create GraphQL app with resolvers
-        graphql_app = GraphQLApp(schema=schema)
+        graphql_app = GraphQLRouter(schema)
 
-        # Add GraphQL endpoint
-        self.app.add_route("/graphql", graphql_app)
-
-        # Add GraphQL playground
-        self.app.add_route("/graphql-playground", graphql_app)
+        # Add GraphQL endpoint - Mount it to handle both graphql and graphiql
+        self.app.include_router(graphql_app, prefix="/graphql")
+        self.app.include_router(graphql_app, prefix="/graphql-playground") # Optional alias
 
     def setup_websocket(self):
         """Setup WebSocket endpoint."""
@@ -191,8 +235,8 @@ class APIServer:
 
         logger.info("Starting Enhanced IoT BotScan API Server")
 
-        # Start WebSocket manager in background
-        asyncio.create_task(self.websocket_manager.start_server())
+        # Start WebSocket manager tasks in background (do not start independent server)
+        asyncio.create_task(self.websocket_manager.start_background_tasks())
 
         # Start FastAPI server
         config = uvicorn.Config(

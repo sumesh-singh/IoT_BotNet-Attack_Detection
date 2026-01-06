@@ -344,45 +344,77 @@ class FeatureEngineer:
             'selected_features_count': len(self.selected_features) if self.selected_features else 0,
             'feature_selection_method': self.feature_selection_method,
             'n_features_select': self.n_features_select,
-            'create_polynomial_features': self.create_polynomial_features,
-            'create_interaction_features': self.create_interaction_features,
-            'create_statistical_features': self.create_statistical_features
         }
+
+    def get_state(self) -> Dict[str, Any]:
+        """Get the internal state of the feature engineer."""
+        return {
+            'selected_features': self.selected_features,
+            'feature_stats': self.feature_stats,
+            'feature_importance_': self.feature_importance_,
+            'config': self.config
+        }
+
+    def set_state(self, state: Dict[str, Any]):
+        """Restore internal state."""
+        self.selected_features = state.get('selected_features')
+        self.feature_stats = state.get('feature_stats', {})
+        self.feature_importance_ = state.get('feature_importance_')
+        if 'config' in state:
+            self.config.update(state['config'])
+        
+        logger.info(f"FeatureEngineer state restored. Selected features: {len(self.selected_features) if self.selected_features else 0}")
+
+    def restore_state(self, state: Dict[str, Any]):
+        """
+        Restore internal state (alias for set_state for backward compatibility).
+        
+        Args:
+            state: State dictionary containing selected_features, feature_stats, etc.
+        """
+        self.set_state(state)
+        logger.info("FeatureEngineer state restored via restore_state()")
 
     def transform_new_data(self, X: pd.DataFrame) -> pd.DataFrame:
         """Transform new data using the same feature engineering pipeline."""
-
+        
         if self.selected_features is None:
-            logger.warning(
-                "No selected features available. Run feature engineering first.")
+            logger.warning("No selected features available. Run feature engineering first.")
             return X
-
+        
         # Apply the same transformations
         X_transformed = X.copy()
-
+        
         # Create statistical features
         if self.create_statistical_features:
             X_transformed = self._create_statistical_features(X_transformed)
-
+        
         # Create polynomial features
         if self.create_polynomial_features:
             X_transformed = self._create_polynomial_features(X_transformed)
-
+        
         # Create interaction features
         if self.create_interaction_features:
             X_transformed = self._create_interaction_features(X_transformed)
-
+        
         # Create domain features
         X_transformed = self._create_domain_features(X_transformed)
-
-        # Select only the features that were selected during training
-        available_features = [
-            col for col in self.selected_features if col in X_transformed.columns]
-        X_transformed = X_transformed[available_features]
-
-        logger.info(
-            f"Transformed new data. Shape: {X.shape} -> {X_transformed.shape}")
-
+        
+        # CRITICAL FIX: Handle missing features
+        available_features = [col for col in self.selected_features if col in X_transformed.columns]
+        missing_features = [col for col in self.selected_features if col not in X_transformed.columns]
+        
+        if missing_features:
+            logger.warning(f"Missing {len(missing_features)} features in transformed data. Adding zeros.")
+            # Add missing features with zeros
+            for feat in missing_features:
+                X_transformed[feat] = 0.0
+        
+        # Select features in the correct order
+        X_transformed = X_transformed[self.selected_features]
+        
+        logger.info(f"Transformed new data. Shape: {X.shape} -> {X_transformed.shape}")
+        
         return X_transformed
 
 

@@ -73,10 +73,10 @@ class WebSocketManager:
         }
 
     async def start_server(self):
-        """Start the WebSocket server."""
-
+        """Start the WebSocket server (Standalone Mode)."""
         logger.info(f"Starting WebSocket server on {self.host}:{self.port}")
-
+        # Only start if we genuinely want a standalone server (unlikely in this hybrid app)
+        # But for compatibility, we keep it, but splitting tasks.
         async with websockets.serve(
             self.handle_client,
             self.host,
@@ -85,13 +85,16 @@ class WebSocketManager:
             ping_timeout=10
         ):
             logger.info("WebSocket server started successfully")
+            await self.start_background_tasks()
 
-            # Start background tasks
-            await asyncio.gather(
-                self.cleanup_inactive_connections(),
-                self.process_message_queues(),
-                self.send_heartbeat()
-            )
+    async def start_background_tasks(self):
+        """Start background maintenance tasks."""
+        logger.info("Starting WebSocket background tasks")
+        await asyncio.gather(
+            self.cleanup_inactive_connections(),
+            self.process_message_queues(),
+            self.send_heartbeat()
+        )
 
     async def handle_client(self, websocket: WebSocketServerProtocol, path: str):
         """Handle new client connection."""
@@ -244,15 +247,28 @@ class WebSocketManager:
                 timestamp=datetime.now(),
                 message_id=str(uuid.uuid4())
             )
+            
+            payload = json.dumps(asdict(message), default=str)
 
-            await client.websocket.send(json.dumps(asdict(message), default=str))
+            # Handle different WebSocket implementations
+            if hasattr(client.websocket, 'send_text'):
+                # FastAPI / Starlette
+                await client.websocket.send_text(payload)
+            elif hasattr(client.websocket, 'send'):
+                # websockets library
+                await client.websocket.send(payload)
+            else:
+                logger.error(f"Unknown websocket type for client {client_id}")
+
             self.stats['messages_sent'] += 1
 
-        except websockets.exceptions.ConnectionClosed:
-            logger.info(f"Client {client_id} connection closed")
-            await self.disconnect_client(client_id)
-        except Exception as e:
-            logger.error(f"Error sending message to client {client_id}: {e}")
+        except (websockets.exceptions.ConnectionClosed, Exception) as e:
+            # Handle generic disconnects or specific library errors
+            if "disconnect" in str(e).lower() or "closed" in str(e).lower():
+                logger.info(f"Client {client_id} connection closed")
+                await self.disconnect_client(client_id)
+            else:
+                logger.error(f"Error sending message to client {client_id}: {e}")
 
     async def broadcast_to_channel(self, channel: str, message_data: Dict[str, Any]):
         """Broadcast message to all clients subscribed to a channel."""

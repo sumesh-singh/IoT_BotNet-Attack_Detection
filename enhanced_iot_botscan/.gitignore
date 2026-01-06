@@ -26,12 +26,12 @@ MANIFEST
 
 # Virtual Environments
 venv/
+.venv/
 env/
+.env/
 ENV/
 env.bak/
 venv.bak/
-.venv
-venv
 
 # Installer logs
 pip-log.txt
@@ -107,6 +107,8 @@ start_backend.sh
 start_frontend.sh
 start_all.sh
 mcp_config.json
+migrate_*.log
+migration_*.log
 
 # TestSprite Artifacts
 testsprite_tests/tmp/

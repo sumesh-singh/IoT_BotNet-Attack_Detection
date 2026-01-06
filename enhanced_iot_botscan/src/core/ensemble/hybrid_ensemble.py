@@ -91,7 +91,8 @@ class HybridEnsemble:
 
         n_classes = len(np.unique(y))
         if n_classes > 2:
-            self.use_stacking = False
+            # Multi-class detected: stacking now supported via StackingEnsemble update
+            pass
 
         if self.use_stacking:
             logger.info("Generating stacking data...")
@@ -144,6 +145,7 @@ class HybridEnsemble:
         }
 
         self.is_trained = True
+        self.feature_names_in_ = X.columns.tolist() # Store feature names for compatibility (e.g. adversarial wrapper)
         if validation_data:
             ensemble_accuracy = self._evaluate_ensemble(X_val, y_val)
             ensemble_results['ensemble_validation_accuracy'] = ensemble_accuracy
@@ -160,21 +162,23 @@ class HybridEnsemble:
                 "Ensemble must be trained before making predictions")
 
         if self.use_stacking:
-            # Get predictions from base models
-            base_predictions = []
+            # Get probabilities from base models for stacking (matching training data)
+            base_probabilities = []
             for model_name, model in self.base_models.items():
                 if hasattr(model, 'is_trained') and model.is_trained:
-                    pred = model.predict(X)
-                    base_predictions.append(pred)
+                    pred = model.predict_proba(X)
+                    base_probabilities.append(pred)
 
-            if not base_predictions:
+            if not base_probabilities:
                 raise ValueError("No trained base models available")
 
-            # Stack predictions
-            base_pred_array = np.column_stack(base_predictions)
+            # Stack probabilities (use column 1 for binary classification to match StackingEnsemble)
+            base_feature_array = np.column_stack(
+                [prob[:, 1] if prob.shape[1] > 1 else prob[:, 0] for prob in base_probabilities]
+            )
 
             # Use meta-learner for final prediction
-            return self.meta_learner.predict(base_pred_array)
+            return self.meta_learner.predict(base_feature_array)
 
         else:
             probabilities = []
@@ -295,8 +299,8 @@ class HybridEnsemble:
 
         return self.meta_learner.get_base_model_weights()
 
-    def save_model(self, filepath: str) -> None:
-        """Save trained ensemble to disk."""
+    def save_model(self, filepath: str, feature_engineer_state: Optional[Dict[str, Any]] = None) -> None:
+        """Save trained ensemble to disk with feature engineer state."""
 
         if not self.is_trained:
             raise ValueError("Cannot save untrained ensemble")
@@ -324,6 +328,13 @@ class HybridEnsemble:
                 'training_history': self.meta_learner.training_history,
                 'is_trained': self.meta_learner.is_trained
             }
+        
+        # CRITICAL: Always save feature engineer state
+        if feature_engineer_state is None:
+            logger.warning("Feature engineer state not provided to save_model()!")
+        else:
+            # Update internal state so it's available in memory immediately without reloading
+            self.feature_engineer_state = feature_engineer_state
 
         ensemble_data = {
             'base_models': base_models_data,
@@ -332,11 +343,18 @@ class HybridEnsemble:
             'training_history': self.training_history,
             'is_trained': self.is_trained,
             'label_encoder': self.label_encoder,
-            'config': self.config
+            'config': self.config,
+            'feature_names_in_': getattr(self, 'feature_names_in_', None),
+            'feature_engineer_state': feature_engineer_state,  # Save with consistent key
+            '_feature_engineer_state': feature_engineer_state  # Backup key for compatibility
         }
 
         joblib.dump(ensemble_data, filepath)
         logger.info(f"Hybrid Ensemble saved to {filepath}")
+        if feature_engineer_state:
+            logger.info(f"  - Feature engineer state saved (selected features: {len(feature_engineer_state.get('selected_features', []))})")
+        else:
+            logger.warning("  - WARNING: No feature engineer state saved!")
 
     def load_model(self, filepath: str) -> None:
         """Load trained ensemble from disk."""
@@ -371,6 +389,19 @@ class HybridEnsemble:
         self.is_trained = ensemble_data['is_trained']
         self.label_encoder = ensemble_data.get('label_encoder')
         self.config = ensemble_data['config']
+        self.feature_names_in_ = ensemble_data.get('feature_names_in_')
+        
+        # CRITICAL: Load feature engineer state (check both keys)
+        self.feature_engineer_state = ensemble_data.get('feature_engineer_state')
+        if self.feature_engineer_state is None:
+            self.feature_engineer_state = ensemble_data.get('_feature_engineer_state')
+
+        logger.info(f"Hybrid Ensemble loaded from {filepath}")
+        if self.feature_engineer_state:
+            selected_count = len(self.feature_engineer_state.get('selected_features', []))
+            logger.info(f"  - Feature engineer state loaded (selected features: {selected_count})")
+        else:
+            logger.warning("  - WARNING: No feature engineer state found in loaded model!")
 
         logger.info(f"Hybrid Ensemble loaded from {filepath}")
 

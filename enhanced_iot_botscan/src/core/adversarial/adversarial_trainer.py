@@ -214,14 +214,26 @@ class AdversarialTrainer:
     def _train_epoch(self, model: BaseEstimator, X: np.ndarray, y: np.ndarray,
                      X_val: np.ndarray, y_val: np.ndarray) -> Dict[str, Any]:
         """Train model for one epoch."""
+        import pandas as pd
 
-        # Train model (this is a simplified version - in practice, you'd need to implement
-        # proper incremental training for sklearn models)
-        model.fit(X, y)
+        # Train model - support both HybridEnsemble.train() and sklearn.fit()
+        if hasattr(model, 'train') and callable(getattr(model, 'train')):
+            # HybridEnsemble expects (X, y, validation_data=(X_val, y_val))
+            # Convert numpy to DataFrame for HybridEnsemble
+            X_df = pd.DataFrame(X)
+            y_series = pd.Series(y)
+            X_val_df = pd.DataFrame(X_val)
+            y_val_series = pd.Series(y_val)
+            model.train(X_df, y_series, validation_data=(X_val_df, y_val_series))
+        elif hasattr(model, 'fit') and callable(getattr(model, 'fit')):
+            # Standard sklearn estimators use fit()
+            model.fit(X, y)
+        else:
+            raise ValueError(f"Model {type(model).__name__} has no train() or fit() method")
 
         # Evaluate on validation set
-        train_accuracy = model.score(X, y)
-        val_accuracy = model.score(X_val, y_val)
+        train_accuracy = model.score(X, y) if hasattr(model, 'score') else 0.0
+        val_accuracy = model.score(X_val, y_val) if hasattr(model, 'score') else 0.0
 
         return {
             'train_accuracy': train_accuracy,
@@ -230,11 +242,10 @@ class AdversarialTrainer:
         }
 
     def _clone_model(self, model: BaseEstimator) -> BaseEstimator:
-        """Create a copy of the model."""
-
-        # This is a simplified version - in practice, you'd need to implement
-        # proper model cloning for different model types
-        return model
+        """Create a deep copy of the model, preserving trained state."""
+        import copy
+        # Use deepcopy to preserve trained state (sklearn.clone creates untrained copy)
+        return copy.deepcopy(model)
 
     def evaluate_robustness(self, model: BaseEstimator, X: np.ndarray, y: np.ndarray) -> Dict[str, Any]:
         """Evaluate model robustness against adversarial attacks."""

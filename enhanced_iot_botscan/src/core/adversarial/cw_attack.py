@@ -53,6 +53,12 @@ class CWAttack:
 
         logger.info(f"Generating C&W attack on {len(X)} samples")
 
+        # Handle DataFrame/Series input
+        if hasattr(X, 'values'):
+            X = X.values
+        if hasattr(y, 'values'):
+            y = y.values
+
         # Convert to PyTorch tensors
         X_tensor = torch.tensor(X, dtype=torch.float32)
         y_tensor = torch.tensor(y, dtype=torch.long)
@@ -106,7 +112,9 @@ class CWAttack:
                 x_adv = torch.clamp(x_adv, 0, 1)
 
                 # Forward pass
-                logits = model_wrapper(x_adv.unsqueeze(0))
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message="X does not have valid feature names")
+                    logits = model_wrapper(x_adv.unsqueeze(0))
 
                 # Compute loss
                 if self.targeted and target is not None:
@@ -119,13 +127,27 @@ class CWAttack:
                     loss = -true_loss + c * self._distance_loss(x, x_adv)
 
                 # Backward pass
-                loss.backward()
+                try:
+                    loss.backward()
+                except RuntimeError:
+                    # Gradient calculation failed, use finite differences
+                    pass
+                
+                if delta.grad is None:
+                     if self.targeted and target is not None:
+                         grad_est = self._finite_diff_grad(model_wrapper, x_adv.unsqueeze(0), None, target.unsqueeze(0))
+                     else:
+                         grad_est = self._finite_diff_grad(model_wrapper, x_adv.unsqueeze(0), y.unsqueeze(0), None)
+                     delta.grad = grad_est.squeeze(0)
+
                 optimizer.step()
 
                 # Check if attack is successful
                 with torch.no_grad():
                     x_adv_clamped = torch.clamp(x + delta, 0, 1)
-                    logits_check = model_wrapper(x_adv_clamped.unsqueeze(0))
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", message="X does not have valid feature names")
+                        logits_check = model_wrapper(x_adv_clamped.unsqueeze(0))
                     pred = torch.argmax(logits_check, dim=1)
 
                     if self.targeted and target is not None:
@@ -147,6 +169,45 @@ class CWAttack:
             x_adv_final = torch.clamp(x + delta, 0, 1)
 
         return x_adv_final
+
+    def _finite_diff_grad(self, model_wrapper, X, y_tensor, target_tensor=None, eps=1e-4):
+        """Estimate gradient via central finite differences."""
+        logger.warning("Using finite difference gradient estimation (slow).")
+        X = X.detach().clone()
+        grad_est = torch.zeros_like(X)
+        
+        n_features = X.shape[1]
+        
+        # Convert to long for integer indexing
+        y_indices = y_tensor.long() if y_tensor is not None else None
+        target_indices = target_tensor.long() if target_tensor is not None else None
+        
+        with torch.no_grad():
+            for i in range(n_features):
+                delta = torch.zeros_like(X)
+                delta[:, i] = eps
+                
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message="X does not have valid feature names")
+                    logits_plus = model_wrapper(X + delta)
+                
+                if self.targeted and target_indices is not None:
+                    loss_plus = nn.CrossEntropyLoss(reduction='none')(logits_plus, target_indices)
+                else:
+                    loss_plus = -nn.CrossEntropyLoss(reduction='none')(logits_plus, y_indices)
+                
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message="X does not have valid feature names")
+                    logits_minus = model_wrapper(X - delta)
+                
+                if self.targeted and target_indices is not None:
+                    loss_minus = nn.CrossEntropyLoss(reduction='none')(logits_minus, target_indices)
+                else:
+                    loss_minus = -nn.CrossEntropyLoss(reduction='none')(logits_minus, y_indices)
+                
+                grad_est[:, i] = (loss_plus - loss_minus) / (2 * eps)
+                
+        return grad_est
 
     def _distance_loss(self, x_orig: torch.Tensor, x_adv: torch.Tensor) -> torch.Tensor:
         """Compute distance loss between original and adversarial examples."""
@@ -230,6 +291,9 @@ class SklearnModelWrapper(nn.Module):
         super().__init__()
         self.sklearn_model = sklearn_model
 
+        # Extract feature names if available (to prevent warnings)
+        self.feature_names = getattr(sklearn_model, 'feature_names_in_', None)
+
         # Extract model parameters for gradient computation
         if hasattr(sklearn_model, 'coef_'):
             self.coef = nn.Parameter(torch.tensor(
@@ -243,23 +307,34 @@ class SklearnModelWrapper(nn.Module):
 
         if hasattr(self, 'coef'):
             # Linear model
-            if len(self.coef.shape) == 1 or (len(self.coef.shape) == 2 and self.coef.shape[0] == 1):
-                # Binary classification
-                if len(self.coef.shape) == 2:
-                    logits = torch.matmul(x, self.coef.T) + self.intercept
+            try:
+                if len(self.coef.shape) == 1 or (len(self.coef.shape) == 2 and self.coef.shape[0] == 1):
+                    # Binary classification
+                    if len(self.coef.shape) == 2:
+                        logits = torch.matmul(x, self.coef.T) + self.intercept
+                    else:
+                        logits = torch.matmul(x, self.coef) + self.intercept
+                    return torch.cat([-logits, logits], dim=1)
                 else:
-                    logits = torch.matmul(x, self.coef) + self.intercept
-                return torch.cat([-logits, logits], dim=1)
+                    # Multi-class classification
+                    logits = torch.matmul(x, self.coef.T) + self.intercept
+                    return logits
+            except RuntimeError:
+                pass
+
+        # For tree-based models or fallback, we need to approximate via predict_proba
+        with torch.no_grad():
+            x_np = x.detach().cpu().numpy()
+            
+            # Reconstruct DataFrame if feature names are available
+            if self.feature_names is not None and x_np.shape[1] == len(self.feature_names):
+                import pandas as pd
+                x_input = pd.DataFrame(x_np, columns=self.feature_names)
+                predictions = self.sklearn_model.predict_proba(x_input)
             else:
-                # Multi-class classification
-                logits = torch.matmul(x, self.coef.T) + self.intercept
-                return logits
-        else:
-            # For tree-based models, we need to approximate with a neural network
-            # This is a simplified approximation
-            with torch.no_grad():
-                predictions = self.sklearn_model.predict_proba(x.numpy())
-            return torch.tensor(predictions, dtype=torch.float32)
+                predictions = self.sklearn_model.predict_proba(x_np)
+                
+        return torch.tensor(predictions, dtype=torch.float32)
 
 
 class CWAttackGenerator:
@@ -314,7 +389,8 @@ class CWAttackGenerator:
                             model, X, y, X_adv)
 
                         results[attack_name] = {
-                            'adversarial_examples': X_adv,
+                            'adversarial_examples': X_adv,  # Full array
+                            'adversarial_examples_sample': X_adv[:50],
                             'evaluation': eval_results
                         }
 

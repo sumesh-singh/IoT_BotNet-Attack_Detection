@@ -3,6 +3,27 @@ Enhanced IoT BotScan - Streamlit Frontend
 Fixed: Navigation menu and component loading issues
 """
 
+# ===== CRITICAL: Windows DLL Path Fix - MUST BE BEFORE ANY IMPORTS =====
+# This fixes c10.dll loading issues in Streamlit's subprocess environment
+import os
+import sys
+if sys.platform == 'win32':
+    # Find torch installation and add its lib directory to DLL search path
+    try:
+        import importlib.util
+        torch_spec = importlib.util.find_spec('torch')
+        if torch_spec and torch_spec.origin:
+            torch_lib_path = os.path.join(os.path.dirname(torch_spec.origin), 'lib')
+            if os.path.exists(torch_lib_path):
+                # Add to DLL search path (Python 3.8+)
+                if hasattr(os, 'add_dll_directory'):
+                    os.add_dll_directory(torch_lib_path)
+                # Also prepend to PATH
+                os.environ['PATH'] = torch_lib_path + os.pathsep + os.environ.get('PATH', '')
+    except Exception:
+        pass  # Silently fail - torch might not be installed
+# ===== END DLL PATH FIX =====
+
 import streamlit as st
 from streamlit_option_menu import option_menu
 import pandas as pd
@@ -46,8 +67,8 @@ def create_navigation():
     try:
         selected = option_menu(
             menu_title=None,
-            options=["Dashboard", "Analytics", "Training", "Settings"],
-            icons=["speedometer2", "bar-chart-line", "robot", "gear"],
+            options=["Dashboard", "Analytics", "Training", "Defense", "Settings"],
+            icons=["speedometer2", "bar-chart-line", "robot", "shield-check", "gear"],
             menu_icon="cast",
             default_index=0,
             orientation="horizontal",
@@ -70,7 +91,7 @@ def create_navigation():
         # Fallback to standard Streamlit selectbox
         return st.selectbox(
             "Navigate to:",
-            ["Dashboard", "Analytics", "Training", "Settings"],
+            ["Dashboard", "Analytics", "Training", "Defense", "Settings"],
             index=0
         )
 
@@ -112,6 +133,12 @@ def show_dashboard():
             status['last_training'].split('T')[0] if 'T' in status['last_training'] else status['last_training'],
             help="Date of the most recent model training run."
         )
+
+    # Drift Alert Section
+    if 'drift_status' in status and status['drift_status']['drift_detected']:
+        ds = status['drift_status']
+        st.error(f"⚠️ **Performance Degradation Detected**: {ds.get('message', 'Unknown issue')}")
+        st.caption("Consider retraining the model with new data or enabling active drift adaptation.")
     
     st.divider()
     
@@ -305,7 +332,11 @@ def show_training():
     with col1:
         st.subheader("Configuration")
         
-        data_source = st.radio("Data Source", ["Existing Dataset", "Upload New Dataset"], horizontal=True)
+        data_source = st.radio(
+            "Data Source", 
+            ["Existing Dataset", "Unified Multi-Dataset (N-BaIoT + IoT-23 + BoT-IoT)", "Upload New Dataset"],
+            horizontal=False
+        )
         
         dataset_path = None
         
@@ -319,6 +350,10 @@ def show_training():
                     datasets,
                     help="Path to the CSV file containing training data."
                 )
+        elif data_source == "Unified Multi-Dataset (N-BaIoT + IoT-23 + BoT-IoT)":
+            dataset_path = "unified_mode"
+            st.info("ℹ️ This mode combines N-BaIoT, IoT-23, and BoT-IoT datasets into a single training set. This requires significant memory and time.")
+            st.warning("⚠️ Target column will be automatically normalized to 'label' (0=Benign, 1=Malicious).")
         else:
             uploaded_file = st.file_uploader("Upload CSV", type=['csv'])
             if uploaded_file is not None:
@@ -333,11 +368,53 @@ def show_training():
                 dataset_path = file_path
                 st.success(f"File saved: {uploaded_file.name}")
         
-        target_col = st.text_input(
-            "Target Column Name", 
-            value="label",
-            help="Name of the column containing the class labels (e.g., 'label', 'class')."
-        )
+        # Target Column Selection (Dynamic based on dataset)
+        if dataset_path and os.path.exists(dataset_path):
+            try:
+                # Read only the first row to get column names
+                df_preview = pd.read_csv(dataset_path, nrows=0)
+                columns = df_preview.columns.tolist()
+                
+                # Try to find a likely default (label, class, target, etc.)
+                default_col = "label"
+                for col in columns:
+                    if any(keyword in col.lower() for keyword in ['label', 'class', 'target']):
+                        default_col = col
+                        break
+                
+                # Use default if it exists in columns, otherwise use first column
+                default_index = columns.index(default_col) if default_col in columns else 0
+                
+                target_col = st.selectbox(
+                    "Target Column Name",
+                    options=columns,
+                    index=default_index,
+                    help="Select the column containing the class labels."
+                )
+
+            except Exception as e:
+                st.error(f"Error reading dataset columns: {e}")
+                target_col = st.text_input(
+                    "Target Column Name", 
+                    value="label",
+                    help="Name of the column containing the class labels (e.g., 'label', 'class')."
+                )
+        elif data_source == "Unified Multi-Dataset (N-BaIoT + IoT-23 + BoT-IoT)":
+             target_col = st.text_input(
+                "Target Column Name", 
+                value="label",
+                help="Automatically set for Unified Mode.",
+                disabled=True
+            )
+        else:
+            # Fallback to text input if no dataset selected
+            target_col = st.text_input(
+                "Target Column Name", 
+                value="label",
+                help="Select a dataset first to see available columns.",
+                disabled=True
+            )
+
         
         model_type = st.selectbox(
             "Model Architecture",
@@ -365,10 +442,13 @@ def show_training():
         st.subheader("Training Progress")
         
         if train_btn and dataset_path:
+            is_unified = data_source == "Unified Multi-Dataset (N-BaIoT + IoT-23 + BoT-IoT)"
             config = {
                 'target_column': target_col,
                 'optimize_base_models': optimize,
                 'use_stacking': use_stacking,
+                'dataset_mode': 'unified' if is_unified else 'single',
+                'use_optimized_loader': True  # Enable optimized data loader for better memory management
             }
             
             with st.status("Running Training Pipeline...", expanded=True) as status:
@@ -403,6 +483,194 @@ def show_training():
         elif not train_btn:
             st.info("Configure parameters and click 'Start Training' to begin.")
 
+
+
+# ============================================
+# Page: Adversarial Defense
+# ============================================
+
+def show_adversarial_defense():
+    st.title("🛡️ Adversarial Defense Center")
+    
+    # ===== TEMPORARY DIAGNOSTIC - Remove after debugging =====
+    import sys
+    st.write("**Python executable:**", sys.executable)
+    try:
+        # Add DLL directory before torch import (Windows fix)
+        if sys.platform == 'win32':
+            import importlib.util
+            torch_spec = importlib.util.find_spec('torch')
+            if torch_spec and torch_spec.origin:
+                import os
+                torch_lib_path = os.path.join(os.path.dirname(torch_spec.origin), 'lib')
+                if os.path.exists(torch_lib_path):
+                    if hasattr(os, 'add_dll_directory'):
+                        os.add_dll_directory(torch_lib_path)
+                    os.environ['PATH'] = torch_lib_path + os.pathsep + os.environ.get('PATH', '')
+        
+        import torch
+        st.success(f"✅ **Torch version:** {torch.__version__}")
+    except Exception as e:
+        st.error(f"❌ **Torch import failed:** {e}")
+    # ===== END DIAGNOSTIC =====
+    
+    backend = st.session_state.backend
+    status = backend.get_system_status()
+    
+    if not status['model_loaded']:
+        st.warning("⚠️ No trained model found. Train a model first to enable defense mechanisms.")
+        return
+
+    tab1, tab2 = st.tabs(["🛡️ Robustness Testing", "🤖 Robust Training"])
+    
+    # --- Tab 1: Robustness Testing (ARM) ---
+    with tab1:
+        st.header("Robustness Testing (ARM)")
+        st.write("Test your model's resilience using realistic IoT threat simulations.")
+        
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            st.subheader("Threat Scenarios")
+            st.write("ARM tests your model against:")
+            st.write("- 🔊 **Noise Injection** - Sensor noise simulation")
+            st.write("- ❌ **Feature Masking** - Sensor failure simulation")  
+            st.write("- 📈 **Traffic Bursts** - DDoS pattern simulation")
+            
+            datasets = get_available_datasets()
+            test_dataset = st.selectbox("Test Dataset", datasets) if datasets else None
+            
+            run_test = st.button("🚀 Run Robustness Test", type="primary", disabled=not test_dataset)
+            
+        with col2:
+            st.subheader("Robustness Analysis")
+            if run_test and test_dataset:
+                with st.spinner("Running comprehensive robustness evaluation..."):
+                    config = {
+                        'target_column': 'label',
+                        'noise_levels': [0.0, 0.05, 0.1, 0.2],
+                        'masking_rates': [0.0, 0.1, 0.2, 0.3],
+                        'burst_intensities': [1.0, 1.5, 2.0, 3.0]
+                    }
+                    
+                    result = backend.evaluate_robustness(test_dataset, config)
+                    
+                    if result['status'] == 'success':
+                        res = result['results']
+                        
+                        # Check for ARM format
+                        if 'aggregate_scores' in res:
+                            scores = res['aggregate_scores']
+                            
+                            # Main metrics row
+                            m1, m2, m3, m4 = st.columns(4)
+                            m1.metric("Overall", f"{scores.get('overall_robustness', 0):.1%}")
+                            m2.metric("Noise", f"{scores.get('noise_robustness', 0):.1%}")
+                            m3.metric("Masking", f"{scores.get('masking_robustness', 0):.1%}")
+                            m4.metric("Burst", f"{scores.get('burst_robustness', 0):.1%}")
+                            
+                            # Baseline info
+                            baseline = res.get('baseline', {})
+                            if baseline:
+                                st.info(f"📊 Baseline Accuracy: {baseline.get('accuracy', 0):.1%} | Confidence: {baseline.get('confidence', 0):.1%}")
+                            
+                            # ARM Visualizations
+                            try:
+                                from src.core.robustness.visualization import ARMVisualizer
+                                viz = ARMVisualizer()
+                                
+                                # Gauge chart
+                                st.plotly_chart(viz.create_summary_gauge(scores.get('overall_robustness', 0)), 
+                                               use_container_width=True)
+                                
+                                # Scenario bar chart
+                                st.plotly_chart(viz.create_scenario_bar_chart(res), 
+                                               use_container_width=True)
+                                
+                                # Accuracy impact chart
+                                with st.expander("📉 View Accuracy Impact Analysis"):
+                                    st.plotly_chart(viz.create_accuracy_impact_chart(res), 
+                                                   use_container_width=True)
+                            except ImportError:
+                                # Fallback to basic chart
+                                import pandas as pd
+                                scenarios = res.get('threat_scenarios', {})
+                                if scenarios:
+                                    chart_data = []
+                                    for threat_type, threat_results in scenarios.items():
+                                        for scenario, metrics in threat_results.items():
+                                            chart_data.append({
+                                                'Scenario': scenario,
+                                                'Robustness': metrics.get('robustness_score', 0)
+                                            })
+                                    df = pd.DataFrame(chart_data)
+                                    st.bar_chart(df.set_index('Scenario')['Robustness'])
+                            
+                            # Recommendations
+                            report = res.get('report', {})
+                            if report.get('recommendations'):
+                                st.subheader("📋 Recommendations")
+                                for rec in report['recommendations']:
+                                    st.write(f"• {rec}")
+                            
+                            st.success("✅ Robustness evaluation complete!")
+                        else:
+                            # Fallback for old format
+                            st.metric("Robustness Score", f"{res.get('overall_robustness', 0):.2%}")
+                    else:
+                        st.error(f"Evaluation failed: {result.get('message')}")
+            elif not run_test:
+                st.info("Select a dataset and run the test to see robustness metrics.")
+
+    # --- Tab 2: Robust Training ---
+    with tab2:
+        st.header("Robust Training (ARM Augmentation)")
+        st.write("Improve model robustness by augmenting training data with noise, masking, and burst patterns.")
+        
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            st.subheader("Augmentation Config")
+            aug_ratio = st.slider("Augmentation Ratio", 0.1, 0.5, 0.3, 
+                help="Fraction of training data to augment with noise/masking.")
+            
+            st.write("**Augmentation Types:**")
+            st.write("- 🔊 Gaussian Noise (10% of feature std)")
+            st.write("- ❌ Feature Masking (10% of features)")
+            
+            datasets = get_available_datasets()
+            train_dataset = st.selectbox("Training Dataset", datasets, key="adv_train_ds") if datasets else None
+            
+            start_robust_train = st.button("🛡️ Start Robust Training", type="primary", disabled=not train_dataset)
+            
+        with col2:
+            st.subheader("Training Status")
+            if start_robust_train and train_dataset:
+                with st.status("Running ARM-Augmented Training...", expanded=True) as status:
+                    st.write("1. Loading and preprocessing data...")
+                    st.write("2. Generating noisy and masked samples...")
+                    st.write("3. Training on augmented dataset...")
+                    
+                    config = {
+                        'augmentation_ratio': aug_ratio,
+                        'target_column': 'label'
+                    }
+                    
+                    result = backend.train_robust_model(train_dataset, config)
+                    
+                    if result['status'] == 'success':
+                        status.update(label="Robust Training Complete!", state="complete")
+                        res = result['results']
+                        
+                        # Display key metrics
+                        m1, m2 = st.columns(2)
+                        m1.metric("Augmentation Samples", res.get('augmentation_samples', 0))
+                        m2.metric("New Robustness", f"{res.get('robustness_after_training', 0):.1%}")
+                        
+                        st.success("✅ Model updated with improved robustness!")
+                    else:
+                        status.update(label="Training Failed", state="error")
+                        st.error(f"Error: {result.get('message')}")
 
 # ============================================
 # Page: Settings
@@ -459,6 +727,8 @@ def main():
         show_analytics()
     elif selected_page == "Training":
         show_training()
+    elif selected_page == "Defense":
+        show_adversarial_defense()
     elif selected_page == "Settings":
         show_settings()
 

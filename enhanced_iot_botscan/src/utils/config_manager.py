@@ -31,6 +31,9 @@ class ConfigManager:
 
         # Apply environment variable overrides
         self._apply_env_overrides()
+        
+        # Validate paths
+        self.validate_required_paths()
 
     def _find_default_config(self) -> str:
         """Find default configuration file."""
@@ -274,7 +277,17 @@ class ConfigManager:
         else:
             logger.warning(f"Configuration validation failed with {len(issues)} issues.")
 
+
+    def validate_required_paths(self) -> List[str]:
+        """Validate that all required data paths exist."""
+        issues = []
+        data_paths = self.get('data.data_paths', {})
+        for name, path in data_paths.items():
+            if not Path(path).exists():
+                issues.append(f"Data path does not exist: {name} -> {path}")
+                logger.warning(f"Data path does not exist: {name} -> {path}")
         return issues
+
 
     def get_config_summary(self) -> str:
         """Get configuration summary as string."""

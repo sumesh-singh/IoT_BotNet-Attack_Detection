@@ -303,10 +303,17 @@ class StackingEnsemble:
                           y.iloc[train_idx] if y is not None else None)
 
                 # Predict on fold validation data
+                # Predict on fold validation data
                 if hasattr(model, 'predict_proba'):
-                    # Use probabilities if available
-                    fold_predictions = model.predict_proba(
-                        X_val_fold)[:, 1]  # Binary classification
+                    probas = model.predict_proba(X_val_fold)
+                    
+                    if probas.shape[1] == 2:
+                        # Binary classification: use probability of positive class
+                        fold_predictions = probas[:, 1]
+                    else:
+                        # Multi-class: use predicted class labels (stacking typically needs 1 col per model)
+                        # Alternatively, we could use max probability, but class label captures the decision
+                        fold_predictions = model.predict(X_val_fold)
                 else:
                     # Use raw predictions
                     fold_predictions = model.predict(X_val_fold)

@@ -2,7 +2,7 @@
 Attack Generator Implementation for Enhanced IoT BotScan
 Author: Kotiwale Sumesh Singh (160124862043)
 
-Unified interface for generating various types of adversarial attacks.
+OPTIMIZED VERSION with reduced attack combinations for faster evaluation.
 """
 
 import numpy as np
@@ -12,7 +12,6 @@ from typing import Dict, Any, Optional, Tuple, List, Union
 from sklearn.base import BaseEstimator
 import warnings
 
-# Import attack implementations
 from .fgsm_attack import FGSMAttack, FGSMAttackGenerator
 from .pgd_attack import PGDAttack, PGDAttackGenerator
 from .cw_attack import CWAttack, CWAttackGenerator
@@ -25,47 +24,72 @@ class AdversarialAttackGenerator:
 
     def __init__(self, config: Dict[str, Any] = None):
         """Initialize attack generator with configuration."""
-
         self.config = config or {}
         self.attack_configs = self.config.get('attacks', {})
-        self.enabled_attacks = self.config.get(
-            'enabled_attacks', ['fgsm', 'pgd', 'cw'])
+        self.enabled_attacks = self.config.get('enabled_attacks', ['fgsm', 'pgd'])  # Removed 'cw' for speed
+        
+        # OPTIMIZED: Reduced configurations for faster evaluation
+        default_fgsm_config = {
+            'epsilon_range': [0.1, 0.2],  # Reduced from 5 to 2 values
+            'norms': ['inf']  # Only L-inf for speed
+        }
+        
+        default_pgd_config = {
+            'epsilon_range': [0.1],  # Only 1 value
+            'alpha_range': [0.01],  # Only 1 value
+            'num_iter_range': [10],  # Only 1 value
+            'norms': ['inf']  # Only L-inf for speed
+        }
+        
+        default_cw_config = {
+            'c_range': [1.0],  # Only 1 value
+            'max_iter_range': [100],  # Reduced iterations
+            'norms': ['2']  # Only L2 for C&W
+        }
 
-        # Initialize attack generators
         self.attack_generators = {}
 
         if 'fgsm' in self.enabled_attacks:
-            self.attack_generators['fgsm'] = FGSMAttackGenerator(
-                self.attack_configs.get('fgsm', {})
-            )
+            fgsm_config = self.attack_configs.get('fgsm', default_fgsm_config)
+            self.attack_generators['fgsm'] = FGSMAttackGenerator(fgsm_config)
 
         if 'pgd' in self.enabled_attacks:
-            self.attack_generators['pgd'] = PGDAttackGenerator(
-                self.attack_configs.get('pgd', {})
-            )
+            pgd_config = self.attack_configs.get('pgd', default_pgd_config)
+            self.attack_generators['pgd'] = PGDAttackGenerator(pgd_config)
 
         if 'cw' in self.enabled_attacks:
-            self.attack_generators['cw'] = CWAttackGenerator(
-                self.attack_configs.get('cw', {})
-            )
+            cw_config = self.attack_configs.get('cw', default_cw_config)
+            self.attack_generators['cw'] = CWAttackGenerator(cw_config)
 
-        logger.info(
-            f"AdversarialAttackGenerator initialized with attacks: {self.enabled_attacks}")
+        logger.info(f"AdversarialAttackGenerator initialized with attacks: {self.enabled_attacks}")
+        logger.info(f"OPTIMIZED MODE: Using reduced attack configurations for speed")
 
     def generate_all_attacks(self, model: BaseEstimator, X: np.ndarray, y: np.ndarray) -> Dict[str, Any]:
-        """
-        Generate all enabled types of adversarial attacks.
-
-        Args:
-            model: Target model
-            X: Input features
-            y: True labels
-
-        Returns:
-            Dictionary of attack results
-        """
-
+        """Generate all enabled types of adversarial attacks."""
         logger.info(f"Generating all adversarial attacks on {len(X)} samples")
+        
+        # Adaptive sampling based on dataset size
+        if len(X) > 10000:
+            max_samples = 3000  # Large dataset - use 3000
+        elif len(X) > 5000:
+            max_samples = 2000  # Medium dataset - use 2000
+        else:
+            max_samples = len(X)  # Small dataset - use all
+        
+        if len(X) > max_samples:
+            logger.info(f"Sampling {max_samples} from {len(X)} for adversarial attack generation")
+            indices = np.random.choice(len(X), max_samples, replace=False)
+            # Handle both DataFrame and numpy array inputs
+            if hasattr(X, 'iloc'):
+                X_sample = X.iloc[indices].values  # Convert to numpy for consistency
+                y_sample = y.iloc[indices].values if hasattr(y, 'iloc') else y[indices]
+            else:
+                X_sample = X[indices]
+                y_sample = y[indices]
+        else:
+            # Ensure numpy arrays for consistency
+            X_sample = X.values if hasattr(X, 'values') else X
+            y_sample = y.values if hasattr(y, 'values') else y
 
         all_results = {}
 
@@ -74,18 +98,20 @@ class AdversarialAttackGenerator:
                 logger.info(f"Generating {attack_type.upper()} attacks...")
 
                 if attack_type == 'fgsm':
-                    results = generator.generate_multiple_attacks(model, X, y)
+                    results = generator.generate_multiple_attacks(model, X_sample, y_sample)
                 elif attack_type == 'pgd':
-                    results = generator.generate_multiple_attacks(model, X, y)
+                    results = generator.generate_multiple_attacks(model, X_sample, y_sample)
                 elif attack_type == 'cw':
-                    results = generator.generate_multiple_attacks(model, X, y)
+                    results = generator.generate_multiple_attacks(model, X_sample, y_sample)
                 else:
                     logger.warning(f"Unknown attack type: {attack_type}")
                     continue
 
                 all_results[attack_type] = results
-                logger.info(
-                    f"Generated {len(results)} {attack_type.upper()} attack variants")
+                
+                # Count successful attacks
+                successful_count = sum(1 for r in results.values() if 'error' not in r)
+                logger.info(f"Generated {successful_count}/{len(results)} successful {attack_type.upper()} attack variants")
 
             except Exception as e:
                 logger.error(f"Failed to generate {attack_type} attacks: {e}")
@@ -95,20 +121,7 @@ class AdversarialAttackGenerator:
 
     def generate_single_attack(self, attack_type: str, model: BaseEstimator,
                                X: np.ndarray, y: np.ndarray, **kwargs) -> Dict[str, Any]:
-        """
-        Generate a single type of adversarial attack.
-
-        Args:
-            attack_type: Type of attack ('fgsm', 'pgd', 'cw')
-            model: Target model
-            X: Input features
-            y: True labels
-            **kwargs: Additional parameters for the attack
-
-        Returns:
-            Attack results
-        """
-
+        """Generate a single type of adversarial attack."""
         if attack_type not in self.attack_generators:
             raise ValueError(f"Attack type {attack_type} not enabled")
 
@@ -134,7 +147,8 @@ class AdversarialAttackGenerator:
                 raise ValueError(f"Unknown attack type: {attack_type}")
 
             return {
-                'adversarial_examples': X_adv,
+                'adversarial_examples': X_adv,  # Full array for adversarial training
+                'adversarial_examples_sample': X_adv[:50],  # Sample for display
                 'evaluation': results
             }
 
@@ -143,18 +157,7 @@ class AdversarialAttackGenerator:
             return {'error': str(e)}
 
     def evaluate_robustness(self, model: BaseEstimator, X: np.ndarray, y: np.ndarray) -> Dict[str, Any]:
-        """
-        Evaluate model robustness against all attack types.
-
-        Args:
-            model: Target model
-            X: Input features
-            y: True labels
-
-        Returns:
-            Comprehensive robustness evaluation
-        """
-
+        """Evaluate model robustness against all attack types."""
         logger.info("Evaluating model robustness against adversarial attacks")
 
         # Generate all attacks
@@ -165,9 +168,9 @@ class AdversarialAttackGenerator:
 
         for attack_type, results in attack_results.items():
             if 'error' in results:
+                logger.warning(f"Skipping {attack_type} due to error: {results['error']}")
                 continue
 
-            # Aggregate metrics across all variants
             success_rates = []
             accuracy_drops = []
             perturbation_norms = []
@@ -179,8 +182,7 @@ class AdversarialAttackGenerator:
                 eval_results = variant_result['evaluation']
                 success_rates.append(eval_results['success_rate'])
                 accuracy_drops.append(eval_results['accuracy_drop'])
-                perturbation_norms.append(
-                    eval_results['mean_perturbation_norm'])
+                perturbation_norms.append(eval_results['mean_perturbation_norm'])
 
             if success_rates:
                 robustness_metrics[attack_type] = {
@@ -192,7 +194,7 @@ class AdversarialAttackGenerator:
                     'n_variants': len(success_rates)
                 }
 
-        # Overall robustness score
+        # Overall robustness score (1.0 = perfectly robust, 0.0 = completely vulnerable)
         if robustness_metrics:
             overall_robustness = 1.0 - np.mean([
                 metrics['mean_success_rate'] for metrics in robustness_metrics.values()
@@ -208,32 +210,24 @@ class AdversarialAttackGenerator:
             'n_samples': len(X)
         }
 
-        logger.info(
-            f"Robustness evaluation completed. Overall robustness: {overall_robustness:.4f}")
+        logger.info(f"Robustness evaluation completed. Overall robustness: {overall_robustness:.4f}")
+        
+        # Log per-attack robustness
+        for attack_type, metrics in robustness_metrics.items():
+            logger.info(f"  {attack_type.upper()}: mean_success_rate={metrics['mean_success_rate']:.4f}, "
+                       f"mean_accuracy_drop={metrics['mean_accuracy_drop']:.4f}")
 
         return evaluation_results
 
     def find_weakest_attack(self, model: BaseEstimator, X: np.ndarray, y: np.ndarray) -> Dict[str, Any]:
-        """
-        Find the weakest attack that still achieves significant success.
-
-        Args:
-            model: Target model
-            X: Input features
-            y: True labels
-
-        Returns:
-            Information about the weakest effective attack
-        """
-
+        """Find the weakest attack that still achieves significant success."""
         logger.info("Finding weakest effective attack")
 
-        # Generate all attacks
         attack_results = self.generate_all_attacks(model, X, y)
 
         weakest_attack = None
         min_perturbation = float('inf')
-        min_success_rate = 0.3  # Minimum success rate to consider
+        min_success_rate = 0.3
 
         for attack_type, results in attack_results.items():
             if 'error' in results:
@@ -269,66 +263,40 @@ class AdversarialAttackGenerator:
         return weakest_attack
 
     def compare_attack_methods(self, model: BaseEstimator, X: np.ndarray, y: np.ndarray) -> Dict[str, Any]:
-        """
-        Compare different attack methods.
-
-        Args:
-            model: Target model
-            X: Input features
-            y: True labels
-
-        Returns:
-            Comparison results
-        """
-
+        """Compare different attack methods."""
         logger.info("Comparing attack methods")
 
-        # Generate single attacks of each type with standard parameters
         comparison_results = {}
 
         # FGSM
         if 'fgsm' in self.enabled_attacks:
-            fgsm_result = self.generate_single_attack(
-                'fgsm', model, X, y, epsilon=0.1, norm='inf'
-            )
+            fgsm_result = self.generate_single_attack('fgsm', model, X, y, epsilon=0.1, norm='inf')
             if 'error' not in fgsm_result:
                 comparison_results['fgsm'] = fgsm_result['evaluation']
 
         # PGD
         if 'pgd' in self.enabled_attacks:
-            pgd_result = self.generate_single_attack(
-                'pgd', model, X, y, epsilon=0.1, alpha=0.01, num_iter=10, norm='inf'
-            )
+            pgd_result = self.generate_single_attack('pgd', model, X, y, epsilon=0.1, alpha=0.01, 
+                                                      num_iter=10, norm='inf')
             if 'error' not in pgd_result:
                 comparison_results['pgd'] = pgd_result['evaluation']
 
         # C&W
         if 'cw' in self.enabled_attacks:
-            cw_result = self.generate_single_attack(
-                'cw', model, X, y, c=1.0, max_iter=500, norm='2'
-            )
+            cw_result = self.generate_single_attack('cw', model, X, y, c=1.0, max_iter=100, norm='2')
             if 'error' not in cw_result:
                 comparison_results['cw'] = cw_result['evaluation']
 
-        # Rank attacks by effectiveness
+        # Rank attacks
         if comparison_results:
             ranking = {
-                'success_rate': sorted(
-                    comparison_results.items(),
-                    key=lambda x: x[1]['success_rate'],
-                    reverse=True
-                ),
-                'accuracy_drop': sorted(
-                    comparison_results.items(),
-                    key=lambda x: x[1]['accuracy_drop'],
-                    reverse=True
-                ),
-                'perturbation_efficiency': sorted(
-                    comparison_results.items(),
-                    key=lambda x: x[1]['success_rate'] /
-                    (x[1]['mean_perturbation_norm'] + 1e-8),
-                    reverse=True
-                )
+                'success_rate': sorted(comparison_results.items(), 
+                                      key=lambda x: x[1]['success_rate'], reverse=True),
+                'accuracy_drop': sorted(comparison_results.items(), 
+                                       key=lambda x: x[1]['accuracy_drop'], reverse=True),
+                'perturbation_efficiency': sorted(comparison_results.items(),
+                    key=lambda x: x[1]['success_rate'] / (x[1]['mean_perturbation_norm'] + 1e-8),
+                    reverse=True)
             }
         else:
             ranking = {}
@@ -337,32 +305,20 @@ class AdversarialAttackGenerator:
             'attack_results': comparison_results,
             'ranking': ranking,
             'summary': {
-                'best_success_rate': max(
-                    [r['success_rate'] for r in comparison_results.values()]
-                ) if comparison_results else 0,
-                'worst_success_rate': min(
-                    [r['success_rate'] for r in comparison_results.values()]
-                ) if comparison_results else 0,
+                'best_success_rate': max([r['success_rate'] for r in comparison_results.values()]) 
+                                    if comparison_results else 0,
+                'worst_success_rate': min([r['success_rate'] for r in comparison_results.values()]) 
+                                     if comparison_results else 0,
                 'n_methods': len(comparison_results)
             }
         }
 
-        logger.info(
-            f"Attack comparison completed. {len(comparison_results)} methods compared")
+        logger.info(f"Attack comparison completed. {len(comparison_results)} methods compared")
 
         return comparison
 
     def get_attack_statistics(self, attack_results: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Get comprehensive statistics from attack results.
-
-        Args:
-            attack_results: Results from generate_all_attacks
-
-        Returns:
-            Attack statistics
-        """
-
+        """Get comprehensive statistics from attack results."""
         statistics = {
             'total_attacks': 0,
             'successful_attacks': 0,
@@ -377,8 +333,7 @@ class AdversarialAttackGenerator:
 
         for attack_type, results in attack_results.items():
             if 'error' in results:
-                statistics['attack_types'][attack_type] = {
-                    'error': results['error']}
+                statistics['attack_types'][attack_type] = {'error': results['error']}
                 continue
 
             type_stats = {
@@ -400,19 +355,15 @@ class AdversarialAttackGenerator:
                     statistics['successful_attacks'] += 1
 
                     eval_results = variant_result['evaluation']
-                    type_stats['success_rates'].append(
-                        eval_results['success_rate'])
-                    type_stats['accuracy_drops'].append(
-                        eval_results['accuracy_drop'])
+                    type_stats['success_rates'].append(eval_results['success_rate'])
+                    type_stats['accuracy_drops'].append(eval_results['accuracy_drop'])
 
                     all_success_rates.append(eval_results['success_rate'])
                     all_accuracy_drops.append(eval_results['accuracy_drop'])
 
             if type_stats['success_rates']:
-                type_stats['mean_success_rate'] = np.mean(
-                    type_stats['success_rates'])
-                type_stats['mean_accuracy_drop'] = np.mean(
-                    type_stats['accuracy_drops'])
+                type_stats['mean_success_rate'] = np.mean(type_stats['success_rates'])
+                type_stats['mean_accuracy_drop'] = np.mean(type_stats['accuracy_drops'])
 
             statistics['attack_types'][attack_type] = type_stats
 
@@ -421,68 +372,3 @@ class AdversarialAttackGenerator:
             statistics['overall_accuracy_drop'] = np.mean(all_accuracy_drops)
 
         return statistics
-
-
-# Example usage and testing
-if __name__ == '__main__':
-    # Create sample data
-    np.random.seed(42)
-    n_samples = 1000
-    n_features = 20
-
-    X = pd.DataFrame(
-        np.random.randn(n_samples, n_features),
-        columns=[f'feature_{i}' for i in range(n_features)]
-    )
-
-    # Create labels
-    y = pd.Series(
-        (X.iloc[:, 0] + X.iloc[:, 1] +
-         np.random.randn(n_samples) * 0.1 > 0).astype(int)
-    )
-
-    # Create a simple model
-    from sklearn.linear_model import LogisticRegression
-    model = LogisticRegression(random_state=42)
-    model.fit(X, y)
-
-    print("Original model accuracy:", model.score(X, y))
-
-    # Initialize attack generator
-    generator = AdversarialAttackGenerator({
-        'enabled_attacks': ['fgsm', 'pgd', 'cw'],
-        'attacks': {
-            'fgsm': {'epsilon_range': [0.05, 0.1, 0.2]},
-            'pgd': {'epsilon_range': [0.05, 0.1], 'num_iter_range': [5, 10]},
-            'cw': {'c_range': [0.5, 1.0], 'max_iter_range': [100, 500]}
-        }
-    })
-
-    # Generate all attacks
-    all_results = generator.generate_all_attacks(model, X.values, y.values)
-    print(f"\nGenerated attacks for {len(all_results)} attack types")
-
-    # Evaluate robustness
-    robustness_eval = generator.evaluate_robustness(model, X.values, y.values)
-    print(f"\nOverall robustness: {robustness_eval['overall_robustness']:.4f}")
-
-    # Find weakest attack
-    weakest = generator.find_weakest_attack(model, X.values, y.values)
-    if weakest:
-        print(f"\nWeakest attack: {weakest['attack_type']} "
-              f"(success_rate={weakest['success_rate']:.4f})")
-
-    # Compare attack methods
-    comparison = generator.compare_attack_methods(model, X.values, y.values)
-    print("\nAttack Method Comparison:")
-    for method, results in comparison['attack_results'].items():
-        print(f"  {method.upper()}: success_rate={results['success_rate']:.4f}, "
-              f"accuracy_drop={results['accuracy_drop']:.4f}")
-
-    # Get attack statistics
-    stats = generator.get_attack_statistics(all_results)
-    print(f"\nAttack Statistics:")
-    print(f"  Total attacks: {stats['total_attacks']}")
-    print(f"  Successful: {stats['successful_attacks']}")
-    print(f"  Failed: {stats['failed_attacks']}")
-    print(f"  Overall success rate: {stats['overall_success_rate']:.4f}")

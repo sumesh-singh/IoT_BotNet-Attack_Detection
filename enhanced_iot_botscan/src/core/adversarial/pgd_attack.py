@@ -27,7 +27,7 @@ class PGDAttack:
         self.epsilon = self.config.get('epsilon', 0.1)
         self.alpha = self.config.get('alpha', 0.01)
         self.num_iter = self.config.get('num_iter', 10)
-        self.norm = self.config.get('norm', 'inf')
+        self.norm = str(self.config.get('norm', 'inf'))  # Convert to string
         self.targeted = self.config.get('targeted', False)
         self.random_start = self.config.get('random_start', True)
 
@@ -52,6 +52,27 @@ class PGDAttack:
         logger.info(
             f"Generating PGD attack on {len(X)} samples with {self.num_iter} iterations")
 
+        # Handle DataFrame/Series input
+        if hasattr(X, 'values'):
+            X = X.values
+        if hasattr(y, 'values'):
+            y = y.values
+
+        # Detect number of classes from model
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=UserWarning)
+                sample_proba = model.predict_proba(X[:1])
+                num_classes = sample_proba.shape[1]
+        except Exception:
+            num_classes = 2  # Default to binary
+        
+        # Remap labels to valid range if they exceed num_classes
+        y = np.array(y)
+        if y.max() >= num_classes:
+            logger.warning(f"Labels (max={y.max()}) exceed model classes ({num_classes}). Remapping labels.")
+            y = y % num_classes  # Wrap labels to valid range
+        
         # Convert to PyTorch tensors
         X_tensor = torch.tensor(X, dtype=torch.float32, requires_grad=True)
 
@@ -74,12 +95,34 @@ class PGDAttack:
 
         # PGD iterations
         for i in range(self.num_iter):
+            # Detach and set requires_grad for the new iteration
+            X_adv = X_adv.detach().clone()
             X_adv.requires_grad = True
 
             # Forward pass
-            logits = model_wrapper(X_adv)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=UserWarning)
+                logits = model_wrapper(X_adv)
+
+            # Validate logits shape
+            n_classes = logits.shape[1] if len(logits.shape) > 1 else 2
+            max_label = int(max(y)) if len(y) > 0 else 0
+            
+            if max_label >= n_classes:
+                # Labels exceed logit classes - use random perturbation fallback
+                logger.warning(f"Label {max_label} exceeds logits classes {n_classes}. Using random perturbation.")
+                if self.norm == 'inf':
+                    perturbation = self.epsilon * torch.sign(torch.randn_like(X_adv))
+                else:
+                    perturbation = self.epsilon * torch.randn_like(X_adv)
+                    perturbation = perturbation / (torch.norm(perturbation, dim=1, keepdim=True) + 1e-8) * self.epsilon
+                X_adv = X_tensor + perturbation
+                X_adv = torch.clamp(X_adv, 0, 1)
+                return X_adv.detach().numpy()
 
             # Compute loss
+            target_tensor = None
+            true_tensor = None
             if self.targeted and target_labels is not None:
                 # Targeted attack: minimize loss for target class
                 target_tensor = torch.tensor(target_labels, dtype=torch.long)
@@ -90,14 +133,29 @@ class PGDAttack:
                 loss = -nn.CrossEntropyLoss()(logits, true_tensor)
 
             # Compute gradients
-            loss.backward()
+            try:
+                loss.backward()
+            except RuntimeError:
+                # Gradient calculation failed, use finite differences
+                if self.targeted and target_labels is not None:
+                    grad_est = self._finite_diff_grad(model_wrapper, X_adv, None, target_tensor)
+                else:
+                    grad_est = self._finite_diff_grad(model_wrapper, X_adv, true_tensor, None)
+                X_adv.grad = grad_est
+
+            if X_adv.grad is None:
+                if self.targeted and target_labels is not None:
+                    grad_est = self._finite_diff_grad(model_wrapper, X_adv, None, target_tensor)
+                else:
+                    grad_est = self._finite_diff_grad(model_wrapper, X_adv, true_tensor, None)
+                X_adv.grad = grad_est
 
             # Update adversarial examples
             with torch.no_grad():
                 if self.norm == 'inf':
                     # L-infinity norm
                     perturbation = self.alpha * X_adv.grad.sign()
-                elif self.norm == 2:
+                elif self.norm == '2':
                     # L2 norm
                     grad_norm = torch.norm(X_adv.grad, dim=1, keepdim=True)
                     perturbation = self.alpha * X_adv.grad / (grad_norm + 1e-8)
@@ -112,7 +170,7 @@ class PGDAttack:
                     delta = X_adv - X_tensor
                     delta = torch.clamp(delta, -self.epsilon, self.epsilon)
                     X_adv = X_tensor + delta
-                elif self.norm == 2:
+                elif self.norm == '2':
                     # L2 projection
                     delta = X_adv - X_tensor
                     delta_norm = torch.norm(delta, dim=1, keepdim=True)
@@ -124,6 +182,45 @@ class PGDAttack:
                 X_adv = torch.clamp(X_adv, 0, 1)
 
         return X_adv.detach().numpy()
+
+    def _finite_diff_grad(self, model_wrapper, X, y_tensor, target_tensor=None, eps=1e-4):
+        """Estimate gradient via central finite differences."""
+        logger.warning("Using finite difference gradient estimation (slow).")
+        X = X.detach().clone()
+        grad_est = torch.zeros_like(X)
+        
+        n_features = X.shape[1]
+        
+        # Convert to long for integer indexing
+        y_indices = y_tensor.long() if y_tensor is not None else None
+        target_indices = target_tensor.long() if target_tensor is not None else None
+        
+        with torch.no_grad():
+            for i in range(n_features):
+                delta = torch.zeros_like(X)
+                delta[:, i] = eps
+                
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message="X does not have valid feature names")
+                    logits_plus = model_wrapper(X + delta)
+                
+                if self.targeted and target_indices is not None:
+                    loss_plus = nn.CrossEntropyLoss(reduction='none')(logits_plus, target_indices)
+                else:
+                    loss_plus = -nn.CrossEntropyLoss(reduction='none')(logits_plus, y_indices)
+                
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message="X does not have valid feature names")
+                    logits_minus = model_wrapper(X - delta)
+                
+                if self.targeted and target_indices is not None:
+                    loss_minus = nn.CrossEntropyLoss(reduction='none')(logits_minus, target_indices)
+                else:
+                    loss_minus = -nn.CrossEntropyLoss(reduction='none')(logits_minus, y_indices)
+                
+                grad_est[:, i] = (loss_plus - loss_minus) / (2 * eps)
+                
+        return grad_est
 
     def evaluate_attack(self, model: BaseEstimator, X: np.ndarray, y: np.ndarray,
                         X_adv: np.ndarray) -> Dict[str, Any]:
@@ -195,6 +292,9 @@ class SklearnModelWrapper(nn.Module):
         super().__init__()
         self.sklearn_model = sklearn_model
 
+        # Extract feature names if available (to prevent warnings)
+        self.feature_names = getattr(sklearn_model, 'feature_names_in_', None)
+
         # Extract model parameters for gradient computation
         if hasattr(sklearn_model, 'coef_'):
             self.coef = nn.Parameter(torch.tensor(
@@ -208,23 +308,34 @@ class SklearnModelWrapper(nn.Module):
 
         if hasattr(self, 'coef'):
             # Linear model
-            if len(self.coef.shape) == 1 or (len(self.coef.shape) == 2 and self.coef.shape[0] == 1):
-                # Binary classification
-                if len(self.coef.shape) == 2:
-                    logits = torch.matmul(x, self.coef.T) + self.intercept
+            try:
+                if len(self.coef.shape) == 1 or (len(self.coef.shape) == 2 and self.coef.shape[0] == 1):
+                    # Binary classification
+                    if len(self.coef.shape) == 2:
+                        logits = torch.matmul(x, self.coef.T) + self.intercept
+                    else:
+                        logits = torch.matmul(x, self.coef) + self.intercept
+                    return torch.cat([-logits, logits], dim=1)
                 else:
-                    logits = torch.matmul(x, self.coef) + self.intercept
-                return torch.cat([-logits, logits], dim=1)
+                    # Multi-class classification
+                    logits = torch.matmul(x, self.coef.T) + self.intercept
+                    return logits
+            except RuntimeError:
+                pass
+
+        # For tree-based models or fallback, we need to approximate via predict_proba
+        with torch.no_grad():
+            x_np = x.detach().cpu().numpy()
+            
+            # Reconstruct DataFrame if feature names are available
+            if self.feature_names is not None and x_np.shape[1] == len(self.feature_names):
+                import pandas as pd
+                x_input = pd.DataFrame(x_np, columns=self.feature_names)
+                predictions = self.sklearn_model.predict_proba(x_input)
             else:
-                # Multi-class classification
-                logits = torch.matmul(x, self.coef.T) + self.intercept
-                return logits
-        else:
-            # For tree-based models, we need to approximate with a neural network
-            # This is a simplified approximation
-            with torch.no_grad():
-                predictions = self.sklearn_model.predict_proba(x.numpy())
-            return torch.tensor(predictions, dtype=torch.float32)
+                predictions = self.sklearn_model.predict_proba(x_np)
+                
+        return torch.tensor(predictions, dtype=torch.float32)
 
 
 class PGDAttackGenerator:
@@ -282,7 +393,8 @@ class PGDAttackGenerator:
                                 model, X, y, X_adv)
 
                             results[attack_name] = {
-                                'adversarial_examples': X_adv,
+                                'adversarial_examples': X_adv,  # Full array
+                                'adversarial_examples_sample': X_adv[:50],
                                 'evaluation': eval_results
                             }
 

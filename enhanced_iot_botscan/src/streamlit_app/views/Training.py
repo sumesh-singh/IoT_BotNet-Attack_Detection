@@ -101,6 +101,8 @@ def app():
                 'target_column': target_col,
                 'optimize_base_models': optimize,
                 'use_stacking': use_stacking,
+                'dataset_mode': 'unified',
+                'use_optimized_loader': True  # Enable optimized data loader for better memory management
                 # Add other config params as needed
             }
             
