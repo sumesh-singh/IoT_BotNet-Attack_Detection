@@ -118,3 +118,9 @@ testsprite_tests/TC*.py
 testsprite-mcp-test-report.md
 node_modules/
 .benchmarks/
+
+#frontend
+.frontend
+
+# Runtime uploads / large datasets
+src/streamlit_app/data/uploads/
