@@ -68,10 +68,7 @@ class XGBoostModel:
         logger.info(
             f"Training XGBoost on {len(X)} samples with {len(X.columns)} features")
 
-        # Hyperparameter optimization if requested
-        if optimize_hyperparams:
-            self._optimize_hyperparameters(X, y)
-
+        # CRITICAL FIX: Detect n_classes BEFORE optimization to set correct objective
         n_classes = len(np.unique(y))
         if n_classes > 2:
             self.params.update({
@@ -79,12 +76,17 @@ class XGBoostModel:
                 'num_class': n_classes,
                 'eval_metric': 'mlogloss'
             })
-            # Ensure label encoder is used if needed, but XGBoost handles 0,1,2... fine
+            logger.info(f"Multi-class classification detected: {n_classes} classes")
         else:
             self.params.update({
                 'objective': 'binary:logistic',
                 'eval_metric': 'logloss'
             })
+            logger.info("Binary classification detected")
+
+        # Hyperparameter optimization if requested (now uses correct objective)
+        if optimize_hyperparams:
+            self._optimize_hyperparameters(X, y)
         
         self.model = xgb.XGBClassifier(**self.params)
 

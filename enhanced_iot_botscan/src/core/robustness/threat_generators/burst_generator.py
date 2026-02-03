@@ -41,6 +41,8 @@ class BurstGenerator:
         
         # Clip to reasonable range (features shouldn't exceed 10x normal range)
         feature_maxs = np.max(X, axis=0) * 3
+        # FIXED: Prevent zero clipping - if feature_max is 0, set to 1.0 to allow burst values
+        feature_maxs = np.where(feature_maxs == 0, 1.0, feature_maxs)
         X_burst = np.clip(X_burst, np.min(X, axis=0), feature_maxs)
         
         logger.debug(f"Simulated burst traffic with intensity {intensity}")

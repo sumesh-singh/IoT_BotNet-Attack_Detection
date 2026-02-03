@@ -72,10 +72,7 @@ class LightGBMModel:
         logger.info(
             f"Training LightGBM on {len(X)} samples with {len(X.columns)} features")
 
-        # Hyperparameter optimization if requested
-        if optimize_hyperparams:
-            self._optimize_hyperparameters(X, y)
-
+        # CRITICAL FIX: Detect n_classes BEFORE optimization to set correct objective
         n_classes = len(np.unique(y))
         if n_classes > 2:
             self.params.update({
@@ -83,11 +80,17 @@ class LightGBMModel:
                 'num_class': n_classes,
                 'metric': 'multi_logloss'
             })
+            logger.info(f"Multi-class classification detected: {n_classes} classes")
         else:
             self.params.update({
                 'objective': 'binary',
                 'metric': 'binary_logloss'
             })
+            logger.info("Binary classification detected")
+
+        # Hyperparameter optimization if requested (now uses correct objective)
+        if optimize_hyperparams:
+            self._optimize_hyperparameters(X, y)
         
         self.model = lgb.LGBMClassifier(**self.params)
 

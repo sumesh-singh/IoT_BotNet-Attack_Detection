@@ -27,6 +27,7 @@ if sys.platform == 'win32':
 import streamlit as st
 from streamlit_option_menu import option_menu
 import pandas as pd
+import numpy as np
 import plotly.express as px
 from pathlib import Path
 import sys
@@ -67,8 +68,8 @@ def create_navigation():
     try:
         selected = option_menu(
             menu_title=None,
-            options=["Dashboard", "Analytics", "Training", "Defense", "Settings"],
-            icons=["speedometer2", "bar-chart-line", "robot", "shield-check", "gear"],
+            options=["Dashboard", "Analytics", "Training", "Inference", "Defense", "Settings"],
+            icons=["speedometer2", "bar-chart-line", "robot", "lightning-charge", "shield-check", "gear"],
             menu_icon="cast",
             default_index=0,
             orientation="horizontal",
@@ -91,7 +92,7 @@ def create_navigation():
         # Fallback to standard Streamlit selectbox
         return st.selectbox(
             "Navigate to:",
-            ["Dashboard", "Analytics", "Training", "Defense", "Settings"],
+            ["Dashboard", "Analytics", "Training", "Inference", "Defense", "Settings"],
             index=0
         )
 
@@ -673,6 +674,121 @@ def show_adversarial_defense():
                         st.error(f"Error: {result.get('message')}")
 
 # ============================================
+# Page: Inference
+# ============================================
+
+def show_inference():
+    st.title("⚡ Inference Engine")
+    
+    backend = st.session_state.backend
+    status = backend.get_system_status()
+    
+    if not status['model_loaded']:
+        st.warning("⚠️ No trained model found. Please train a model to enable inference.")
+        return
+
+    # Help Section
+        st.write("""
+        - **Manual Input**: Test a single flow by entering feature values.
+        - **Batch Processing**: Upload a CSV to process multiple samples.
+        """)
+
+    tab1, tab2 = st.tabs(["Single Prediction", "Batch Prediction"])
+
+    with tab1:
+        st.subheader("Manual Input")
+        st.info("Enter values for standard network flow features.")
+        
+        # Standard IoT Botnet Features
+        col1, col2 = st.columns(2)
+        with col1:
+            f1 = st.number_input("Packet Size (bytes)", min_value=0, value=64)
+            f2 = st.number_input("Flow Duration (ms)", min_value=0.0, value=10.5)
+            f3 = st.number_input("Source Port", min_value=0, max_value=65535, value=80)
+        with col2:
+            f4 = st.number_input("Destination Port", min_value=0, max_value=65535, value=443)
+            f5 = st.number_input("Protocol", min_value=0, max_value=255, value=6)
+            f6 = st.number_input("Bytes/Sec", min_value=0.0, value=1024.0)
+
+        if st.button("Predict Threat", type="primary"):
+            # Construct DataFrame
+            input_data = pd.DataFrame([{
+                'packet_size': f1,
+                'flow_duration': f2,
+                'src_port': f3,
+                'dst_port': f4,
+                'protocol': f5,
+                'bytes_per_sec': f6
+            }])
+            
+            with st.spinner("Analyzing..."):
+                result = backend.predict(input_data)
+                
+                if result['status'] == 'success':
+                    pred = result['predictions'][0]
+                    prob = result['probabilities'][0]
+                    
+                    # 0 = Benign, 1 = Malicious
+                    is_threat = pred == 1 
+                    
+                    if is_threat:
+                        st.error(f"🚨 **THREAT DETECTED**")
+                        st.metric("Confidence", f"{prob[1]:.2%}")
+                    else:
+                        st.success(f"✅ **Traffic is Benign**")
+                        st.metric("Confidence", f"{prob[0]:.2%}")
+                else:
+                    st.error(f"Prediction Failed: {result['message']}")
+
+    with tab2:
+        st.subheader("Batch Processing")
+        uploaded_file = st.file_uploader("Upload CSV file", type=['csv'])
+        
+        if uploaded_file is not None:
+             if st.button("Process File"):
+                try:
+                    input_df = pd.read_csv(uploaded_file)
+                    st.write(f"Loaded {len(input_df)} samples.")
+                    
+                    with st.spinner("Processing Batch..."):
+                        result = backend.predict(input_df)
+                        
+                        if result['status'] == 'success':
+                            st.success("Processing Complete")
+                            preds = result['predictions']
+                            probs = result['probabilities']
+                            indices = result.get('indices')
+                            
+                            if indices:
+                                results_df = input_df.loc[indices].copy()
+                            else:
+                                results_df = input_df.copy()
+
+                            results_df['Prediction'] = preds
+                            
+                            # Handle probabilities
+                            if hasattr(probs, 'shape') and len(probs.shape) > 1:
+                                results_df['Confidence'] = np.max(probs, axis=1)
+                            else:
+                                results_df['Confidence'] = probs
+                                
+                            st.dataframe(results_df)
+
+                            # CSV Download
+                            csv = results_df.to_csv(index=False).encode('utf-8')
+                            st.download_button(
+                                "Download Results.csv",
+                                csv,
+                                "prediction_results.csv",
+                                "text/csv",
+                                key='download-csv'
+                            )
+                        else:
+                            st.error(f"Batch Prediction Failed: {result['message']}")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+# ============================================
 # Page: Settings
 # ============================================
 
@@ -727,6 +843,8 @@ def main():
         show_analytics()
     elif selected_page == "Training":
         show_training()
+    elif selected_page == "Inference":
+        show_inference()
     elif selected_page == "Defense":
         show_adversarial_defense()
     elif selected_page == "Settings":

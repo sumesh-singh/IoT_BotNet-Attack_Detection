@@ -33,6 +33,11 @@ class NoiseInjector:
         noise = np.random.randn(*X.shape) * std * scale
         return X + noise
     
+    # Alias for compatibility with arm_robustness_monitor.py
+    def add_gaussian_noise(self, X: np.ndarray, scale: float = 0.1) -> np.ndarray:
+        """Alias for inject_gaussian_noise (compatibility with ARM)."""
+        return self.inject_gaussian_noise(X, scale)
+    
     def inject_uniform_noise(self, X: np.ndarray, scale: float = 0.1) -> np.ndarray:
         """Add uniform noise scaled by feature range.
         

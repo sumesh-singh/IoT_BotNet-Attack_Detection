@@ -324,41 +324,62 @@ class AdaptiveRobustnessMonitor:
         }
 
     def _analyze_feature_stability(self, model: BaseEstimator, X: np.ndarray) -> Dict[str, Any]:
-        """Analyze feature importance stability under perturbations."""
+        """Analyze feature importance stability under perturbations.
+        
+        FIXED: Instead of retraining models (which requires y), we analyze how 
+        prediction-based feature importance varies under noise. This is done by
+        comparing feature importances from the trained model itself.
+        """
         
         if not hasattr(model, 'feature_importances_'):
             return {'stable': True, 'note': 'Model does not expose feature importances'}
         
-        # Baseline importance
-        baseline_importance = model.feature_importances_
+        # Baseline importance from the trained model
+        baseline_importance = model.feature_importances_.copy()
         
-        # Importance under noise
+        # For tree-based models, feature importances are fixed after training
+        # We analyze stability by checking how consistent the importance ranking is
+        # under different noise conditions using permutation importance
+        
         noise_injector = self._get_noise_injector()
         perturbed_importances = []
         
-        from sklearn.base import clone
-        
-        for _ in range(5):  # 5 retraining iterations with noisy data
+        # Instead of retraining, we measure prediction variance per feature
+        # under noise to estimate which features are stable contributors
+        for _ in range(5):
             X_noisy = noise_injector.add_gaussian_noise(X, 0.05)
             
-            # Clone and retrain (simplified - in practice, use incremental learning)
-            temp_model = clone(model)
-            # Note: This requires y, but we're analyzing stability conceptually
-            # In practice, you'd use a validation approach
+            # Compute prediction variance per feature using a simple permutation approach
+            # Shuffle each feature and measure prediction change
+            feature_sensitivity = []
+            y_pred_orig = model.predict_proba(X_noisy)
             
-            perturbed_importances.append(temp_model.feature_importances_ if hasattr(temp_model, 'feature_importances_') else baseline_importance)
+            for feat_idx in range(min(X_noisy.shape[1], 50)):  # Limit to first 50 features
+                X_permuted = X_noisy.copy()
+                np.random.shuffle(X_permuted[:, feat_idx])
+                y_pred_permuted = model.predict_proba(X_permuted)
+                
+                # Measure prediction change
+                pred_change = np.mean(np.abs(y_pred_orig - y_pred_permuted))
+                feature_sensitivity.append(pred_change)
+            
+            # Pad with zeros for remaining features if any
+            while len(feature_sensitivity) < len(baseline_importance):
+                feature_sensitivity.append(0.0)
+            
+            perturbed_importances.append(np.array(feature_sensitivity[:len(baseline_importance)]))
         
         if perturbed_importances:
             perturbed_importances = np.array(perturbed_importances)
             importance_variance = np.var(perturbed_importances, axis=0)
-            mean_importance_shift = np.mean(np.abs(perturbed_importances - baseline_importance), axis=0)
+            mean_importance_shift = np.mean(np.abs(perturbed_importances - np.mean(perturbed_importances, axis=0)), axis=0)
         else:
             importance_variance = np.zeros_like(baseline_importance)
             mean_importance_shift = np.zeros_like(baseline_importance)
         
         return {
-            'mean_variance': np.mean(importance_variance),
-            'mean_shift': np.mean(mean_importance_shift),
+            'mean_variance': float(np.mean(importance_variance)),
+            'mean_shift': float(np.mean(mean_importance_shift)),
             'stable': np.mean(mean_importance_shift) < self.stability_threshold,
             'top_stable_features': np.argsort(importance_variance)[:10].tolist(),
             'top_unstable_features': np.argsort(importance_variance)[-10:].tolist()

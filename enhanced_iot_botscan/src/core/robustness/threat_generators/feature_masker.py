@@ -37,6 +37,11 @@ class FeatureMasker:
         
         return X_masked
     
+    # Alias for compatibility with arm_robustness_monitor.py
+    def random_feature_masking(self, X: np.ndarray, mask_rate: float = 0.1) -> np.ndarray:
+        """Alias for mask_random_features (compatibility with ARM)."""
+        return self.mask_random_features(X, mask_rate)
+    
     def mask_specific_features(self, X: np.ndarray, 
                                feature_indices: List[int]) -> np.ndarray:
         """Mask specific features (simulates known sensor failure).

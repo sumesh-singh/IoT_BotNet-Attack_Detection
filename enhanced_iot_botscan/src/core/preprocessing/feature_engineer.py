@@ -63,6 +63,11 @@ class FeatureEngineer:
             f"Starting feature engineering on {len(X)} samples with {len(X.columns)} features")
 
         X_engineered = X.copy()
+        
+        # CRITICAL: Store original training feature names for validation during prediction
+        if not hasattr(self, 'training_features') or self.training_features is None:
+            self.training_features = list(X.columns)
+            logger.info(f"Stored {len(self.training_features)} training feature names for validation")
 
         # Step 1: Create statistical features
         if self.create_statistical_features:
@@ -352,7 +357,8 @@ class FeatureEngineer:
             'selected_features': self.selected_features,
             'feature_stats': self.feature_stats,
             'feature_importance_': self.feature_importance_,
-            'config': self.config
+            'config': self.config,
+            'training_features': getattr(self, 'training_features', None)  # CRITICAL: Save training features
         }
 
     def set_state(self, state: Dict[str, Any]):
@@ -360,6 +366,7 @@ class FeatureEngineer:
         self.selected_features = state.get('selected_features')
         self.feature_stats = state.get('feature_stats', {})
         self.feature_importance_ = state.get('feature_importance_')
+        self.training_features = state.get('training_features')  # CRITICAL: Restore training features
         if 'config' in state:
             self.config.update(state['config'])
         
@@ -382,6 +389,27 @@ class FeatureEngineer:
             logger.warning("No selected features available. Run feature engineering first.")
             return X
         
+        # CRITICAL FIX: Validate input features match training features
+        if hasattr(self, 'training_features') and self.training_features is not None:
+            missing_input_features = set(self.training_features) - set(X.columns)
+            if missing_input_features:
+                logger.warning(
+                    f"Input data missing {len(missing_input_features)} features from training: "
+                    f"{list(missing_input_features)[:5]}{'...' if len(missing_input_features) > 5 else ''}"
+                )
+                # Add missing input features as zeros to maintain consistency
+                for feat in missing_input_features:
+                    X = X.copy()  # Avoid modifying original
+                    X[feat] = 0.0
+                logger.info(f"Added {len(missing_input_features)} missing input features as zeros")
+            
+            extra_input_features = set(X.columns) - set(self.training_features)
+            if extra_input_features:
+                logger.info(
+                    f"Input data has {len(extra_input_features)} extra features not in training "
+                    f"(will be processed but may not be selected)"
+                )
+        
         # Apply the same transformations
         X_transformed = X.copy()
         
@@ -400,12 +428,12 @@ class FeatureEngineer:
         # Create domain features
         X_transformed = self._create_domain_features(X_transformed)
         
-        # CRITICAL FIX: Handle missing features
+        # CRITICAL FIX: Handle missing features in final output
         available_features = [col for col in self.selected_features if col in X_transformed.columns]
         missing_features = [col for col in self.selected_features if col not in X_transformed.columns]
         
         if missing_features:
-            logger.warning(f"Missing {len(missing_features)} features in transformed data. Adding zeros.")
+            logger.warning(f"Missing {len(missing_features)} selected features in transformed data. Adding zeros.")
             # Add missing features with zeros
             for feat in missing_features:
                 X_transformed[feat] = 0.0

@@ -18,6 +18,67 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+# CRITICAL: Detailed 11-class N-BaIoT label mapping per seminar document (Table 2)
+# 1 Benign class + 10 Attack types (Mirai variants, Gafgyt variants)
+NBAIOT_ATTACK_LABELS = {
+    'benign': 0,
+    # Mirai variants
+    'mirai.ack': 1,
+    'mirai.scan': 2,
+    'mirai.syn': 3,
+    'mirai.udp': 4,
+    'mirai.udpplain': 5,
+    # Gafgyt/Bashlite variants
+    'gafgyt.combo': 6,
+    'gafgyt.junk': 7,
+    'gafgyt.scan': 8,
+    'gafgyt.tcp': 9,
+    'gafgyt.udp': 10,
+    # Bashlite aliases (same as gafgyt)
+    'bashlite.combo': 6,
+    'bashlite.junk': 7,
+    'bashlite.scan': 8,
+    'bashlite.tcp': 9,
+    'bashlite.udp': 10
+}
+
+# Simplified label mapping for coarse-grained classification
+NBAIOT_COARSE_LABELS = {
+    'benign': 0,
+    'mirai': 1,
+    'gafgyt': 2,
+    'bashlite': 2  # Bashlite is same as Gafgyt
+}
+
+def parse_nbaiot_attack_label(filename: str, fine_grained: bool = False) -> int:
+    """
+    Parse attack type from N-BaIoT filename.
+    
+    Args:
+        filename: The filename to parse (e.g., '1.benign.csv', '2.mirai.ack.csv')
+        fine_grained: If True, use 11-class detailed labels. If False, use coarse 4-class labels.
+    
+    Returns:
+        Integer label for the attack type
+    """
+    filename_lower = filename.lower()
+    
+    if fine_grained:
+        # Try to match detailed attack patterns
+        for attack_name, label in NBAIOT_ATTACK_LABELS.items():
+            if attack_name in filename_lower:
+                return label
+        # Default: unknown attack
+        return 10 if 'gafgyt' in filename_lower or 'bashlite' in filename_lower else (
+            4 if 'mirai' in filename_lower else 0)
+    else:
+        # Coarse-grained classification
+        for attack_name, label in NBAIOT_COARSE_LABELS.items():
+            if attack_name in filename_lower:
+                return label
+        return 0  # Default to benign
+
+
 class DataLoader:
     """Comprehensive data loader for IoT botnet detection datasets."""
 
@@ -138,18 +199,10 @@ class DataLoader:
                     # Store data
                     device_data.append(df)
 
-                    # Determine label
+                    # FIXED: Use detailed label parsing function for granular attack classification
                     filename = os.path.basename(file_path).lower()
-                    if 'benign' in filename:
-                        label = 0
-                    elif 'mirai' in filename:
-                        label = 1
-                    elif 'gafgyt' in filename:
-                        label = 2
-                    elif 'bashlite' in filename:
-                        label = 3
-                    else:
-                        label = 4
+                    use_fine_grained = self.config.get('fine_grained_labels', False)
+                    label = parse_nbaiot_attack_label(filename, fine_grained=use_fine_grained)
 
                     device_labels.extend([label] * len(df))
 
@@ -182,9 +235,11 @@ class DataLoader:
                         # Be careful with memory here
                         df = pd.read_csv(file_path)
                         all_data.append(df)
-                        # Assume filename indicates class roughly
-                        label = 0 if 'benign' in os.path.basename(
-                            file_path).lower() else 1
+                        # FIXED: Use proper label parsing for fallback files
+                        label = parse_nbaiot_attack_label(
+                            os.path.basename(file_path), 
+                            fine_grained=self.config.get('fine_grained_labels', False)
+                        )
                         all_labels.extend([label] * len(df))
                     except Exception as e:
                         print(f"Error loading {file_path}: {e}")
@@ -208,7 +263,8 @@ class DataLoader:
             'feature_names': list(combined_df.columns),
             'dataset_name': 'N-BaIoT',
             'device_metadata': device_metadata,
-            'label_mapping': {0: 'Benign', 1: 'Mirai', 2: 'Gafgyt', 3: 'Bashlite', 4: 'Other'},
+            # FIXED: Dynamic label mapping based on actual labels found
+            'label_mapping': self._get_nbaiot_label_mapping(all_labels),
             'total_samples': len(combined_df),
             'n_features': len(combined_df.columns),
             'n_classes': len(np.unique(all_labels))
@@ -219,6 +275,46 @@ class DataLoader:
             f"N-BaIoT dataset loaded: {dataset['total_samples']} samples, {dataset['n_features']} features")
 
         return dataset
+    
+    def _get_nbaiot_label_mapping(self, labels: List[int]) -> Dict[int, str]:
+        """Generate label mapping based on actual labels found in data."""
+        unique_labels = set(labels)
+        
+        # Full 11-class mapping
+        full_mapping = {
+            0: 'Benign',
+            1: 'Mirai_ACK',
+            2: 'Mirai_Scan',
+            3: 'Mirai_SYN',
+            4: 'Mirai_UDP',
+            5: 'Mirai_UDPPlain',
+            6: 'Gafgyt_Combo',
+            7: 'Gafgyt_Junk',
+            8: 'Gafgyt_Scan',
+            9: 'Gafgyt_TCP',
+            10: 'Gafgyt_UDP'
+        }
+        
+        # Coarse mapping fallback
+        coarse_mapping = {
+            0: 'Benign',
+            1: 'Mirai',
+            2: 'Gafgyt',
+            3: 'Bashlite',
+            4: 'Other'
+        }
+        
+        # Return only the labels that are present in the data
+        result = {}
+        for label in sorted(unique_labels):
+            if label in full_mapping:
+                result[label] = full_mapping[label]
+            elif label in coarse_mapping:
+                result[label] = coarse_mapping[label]
+            else:
+                result[label] = f'Class_{label}'
+        
+        return result
 
     def load_iot_23_dataset(self) -> Dict[str, Any]:
         """Load IoT-23 dataset."""
@@ -462,6 +558,7 @@ class DataLoader:
         print(
             f"Merging {len(datasets)} datasets. Total unique features: {len(common_features)}")
 
+        # FIXED: Store aligned DataFrames properly to avoid memory leak
         final_dfs = []
         for df in datasets:
             # 1. Align columns
@@ -472,15 +569,17 @@ class DataLoader:
             if missing_feats:
                 # Create a DataFrame of 0s and concat specifically to avoid fragmentation
                 zeros = pd.DataFrame(0, index=df.index, columns=missing_feats)
-                df = pd.concat([df, zeros], axis=1)
+                df_aligned = pd.concat([df, zeros], axis=1)  # Store in new variable
+            else:
+                df_aligned = df.copy()  # Make a copy to avoid modifying original
 
             # 2. Reorder to match common_features + label
             # Ensure we use 'binary_label' as the target 'label'
             cols_to_keep = common_features + ['binary_label']
-            df_aligned = df[cols_to_keep].copy()
-            df_aligned.rename(columns={'binary_label': 'label'}, inplace=True)
+            df_final = df_aligned[cols_to_keep].copy()
+            df_final.rename(columns={'binary_label': 'label'}, inplace=True)
 
-            final_dfs.append(df_aligned)
+            final_dfs.append(df_final)  # Use the aligned and renamed DataFrame
 
         unified_df = pd.concat(final_dfs, ignore_index=True)
 

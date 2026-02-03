@@ -311,9 +311,9 @@ class StackingEnsemble:
                         # Binary classification: use probability of positive class
                         fold_predictions = probas[:, 1]
                     else:
-                        # Multi-class: use predicted class labels (stacking typically needs 1 col per model)
-                        # Alternatively, we could use max probability, but class label captures the decision
-                        fold_predictions = model.predict(X_val_fold)
+                        # FIXED: Multi-class: use max probability to maintain continuous values
+                        # Using class labels breaks meta-learner which expects continuous features
+                        fold_predictions = np.max(probas, axis=1)
                 else:
                     # Use raw predictions
                     fold_predictions = model.predict(X_val_fold)

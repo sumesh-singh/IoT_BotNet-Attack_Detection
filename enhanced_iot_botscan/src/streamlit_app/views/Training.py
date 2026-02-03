@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import time
+import pandas as pd
 from utils import render_header
 from src.streamlit_app.backend_interface import BackendInterface
 
@@ -17,6 +18,38 @@ def get_available_datasets():
                         full_path = os.path.join(dirpath, file)
                         datasets.append(full_path)
     return datasets
+
+
+def validate_dataset(file_path: str, target_col: str) -> tuple:
+    """
+    Validate dataset before training.
+    
+    Args:
+        file_path: Path to the CSV file
+        target_col: Expected target column name
+    
+    Returns:
+        Tuple of (is_valid, message)
+    """
+    try:
+        # Quick peek at the file (first 5 rows)
+        df = pd.read_csv(file_path, nrows=5)
+        
+        if df.empty:
+            return False, "Dataset is empty"
+        
+        if target_col not in df.columns:
+            # Try to find likely target columns
+            possible_targets = [c for c in df.columns if any(x in c.lower() 
+                               for x in ['label', 'class', 'target', 'attack'])]
+            if possible_targets:
+                return True, f"Target column '{target_col}' not found. Did you mean: {possible_targets}?"
+            else:
+                return False, f"Target column '{target_col}' not found. Available columns: {list(df.columns)[:10]}"
+        
+        return True, f"Dataset validated: {len(df.columns)} columns, target='{target_col}'"
+    except Exception as e:
+        return False, f"Invalid CSV: {str(e)}"
 
 def app():
     render_header("Model Training", "Train and evaluate new models")
@@ -97,6 +130,16 @@ def app():
         st.subheader("Training Progress")
         
         if train_btn and dataset_path:
+            # CRITICAL FIX: Validate dataset before training
+            is_valid, validation_msg = validate_dataset(dataset_path, target_col)
+            if not is_valid:
+                st.error(f"⚠️ Dataset Validation Failed: {validation_msg}")
+            else:
+                if "not found" in validation_msg.lower():
+                    st.warning(f"⚠️ {validation_msg}")
+                else:
+                    st.success(f"✅ {validation_msg}")
+                    
             config = {
                 'target_column': target_col,
                 'optimize_base_models': optimize,

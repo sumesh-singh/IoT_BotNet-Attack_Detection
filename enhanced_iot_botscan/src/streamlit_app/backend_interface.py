@@ -211,7 +211,12 @@ class BackendInterface:
             y_train_series = pd.Series(y_train, index=X_train.index)
             y_val_series = pd.Series(y_val, index=X_val.index)
             
-            results = self.model.train(X_train, y_train_series, validation_data=(X_val, y_val_series))
+            # CRITICAL FIX: Pass feature_engineer to train() for proper state management
+            results = self.model.train(
+                X_train, y_train_series, 
+                validation_data=(X_val, y_val_series),
+                feature_engineer=self.engineer  # Pass feature engineer for state saving
+            )
             
             # Generate and store validation predictions for dashboard
             logger.info("Predicting on validation set...")
@@ -321,7 +326,8 @@ class BackendInterface:
                 'status': 'success',
                 'predictions': predictions,
                 'probabilities': probabilities,
-                'feature_importance': self.model.get_feature_importance()
+                'feature_importance': self.model.get_feature_importance(),
+                'indices': X_clean.index.tolist()
             }
 
         except Exception as e:
@@ -411,6 +417,95 @@ class BackendInterface:
         """
         logger.info("Starting automatic retraining on new data...")
         return self.train_model(data_path, config)
+
+    def monitor_and_adapt(self, new_data_path: str, config: Dict[str, Any] = None,
+                          auto_retrain: bool = True) -> Dict[str, Any]:
+        """
+        Monitor for concept drift and automatically adapt if configured.
+        
+        This implements the 'automated detection module that triggers timely 
+        model adaptation' as described in the project abstract.
+        
+        Args:
+            new_data_path: Path to new data for drift checking
+            config: Optional training config for retraining
+            auto_retrain: If True, automatically retrain when drift detected
+            
+        Returns:
+            Status dict with drift detection and adaptation results
+        """
+        if config is None:
+            config = {}
+            
+        logger.info(f"Running automated drift monitoring on: {new_data_path}")
+        
+        # Step 1: Check for drift
+        drift_result = self.check_drift(new_data_path, config)
+        
+        if drift_result['status'] != 'success':
+            return {
+                'status': 'error',
+                'message': f"Drift check failed: {drift_result.get('message', 'Unknown error')}",
+                'drift_detected': False,
+                'retraining_triggered': False
+            }
+        
+        results = drift_result['results']
+        drift_detected = results.get('drift_detected', False)
+        drift_severity = results.get('severity', 'none')
+        
+        logger.info(f"Drift detection result: detected={drift_detected}, severity={drift_severity}")
+        
+        if drift_detected:
+            logger.warning("⚠️ Concept drift detected in incoming data!")
+            
+            if auto_retrain:
+                logger.info("🔄 Auto-retrain enabled. Triggering automatic model adaptation...")
+                
+                # Step 2: Retrain the model with new data
+                retrain_result = self.retrain_model(new_data_path, config)
+                
+                if retrain_result['status'] == 'success':
+                    logger.info("✅ Model successfully adapted to new data distribution")
+                    return {
+                        'status': 'adapted',
+                        'message': 'Drift detected and model automatically retrained',
+                        'drift_detected': True,
+                        'retraining_triggered': True,
+                        'drift_severity': drift_severity,
+                        'drift_details': results,
+                        'retraining_results': retrain_result['results']
+                    }
+                else:
+                    logger.error(f"❌ Automatic retraining failed: {retrain_result.get('message')}")
+                    return {
+                        'status': 'error',
+                        'message': f"Retraining failed: {retrain_result.get('message')}",
+                        'drift_detected': True,
+                        'retraining_triggered': True,
+                        'drift_severity': drift_severity,
+                        'drift_details': results
+                    }
+            else:
+                logger.warning("Auto-retrain disabled. Manual intervention required.")
+                return {
+                    'status': 'drift_detected',
+                    'message': 'Drift detected but auto-retrain is disabled. Manual retraining required.',
+                    'drift_detected': True,
+                    'retraining_triggered': False,
+                    'drift_severity': drift_severity,
+                    'drift_details': results
+                }
+        else:
+            logger.info("✅ No significant drift detected. System stable.")
+            return {
+                'status': 'stable',
+                'message': 'No drift detected. Model adaptation not required.',
+                'drift_detected': False,
+                'retraining_triggered': False,
+                'drift_details': results
+            }
+
 
     # --- Adversarial Methods ---
 
