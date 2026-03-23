@@ -1,16 +1,18 @@
 # Enhanced IoT BotScan Configuration
 # Complete configuration for all components
+# NOTE: Tuned for 8GB RAM — increase values if you have more memory
 
 data:
   data_paths:
     n_baiot: "./data/raw/n_baiot"
     iot_23: "./data/raw/iot_23"
     bot_iot: "./data/raw/bot_iot"
-  chunk_size: 10000
+  chunk_size: 5000
   memory_limit_gb: 8
   use_optimized_loader: true
-  max_samples_per_device: 50000
-  fine_grained_labels: false  # Set to true for 11-class N-BaIoT labels
+  max_samples_per_device: 5000     # N-BaIoT: 9 devices × 5K = 45K rows max
+  max_samples_per_dataset: 50000   # Per-dataset cap applied to IoT-23 and BoT-IoT
+  fine_grained_labels: false       # Set to true for 11-class N-BaIoT labels
 
 feature_engineering:
   create_polynomial_features: false
@@ -21,13 +23,13 @@ feature_engineering:
 
 models:
   random_forest:
-    n_estimators: 200
-    max_depth: 20
+    n_estimators: 100               # Reduced from 200
+    max_depth: 15                   # Reduced from 20
     min_samples_split: 5
     random_state: 42
-    n_jobs: -1
+    n_jobs: 2                       # Limit parallelism to save RAM
   xgboost:
-    n_estimators: 300
+    n_estimators: 150               # Reduced from 300
     max_depth: 6
     learning_rate: 0.1
     subsample: 0.8
@@ -35,20 +37,20 @@ models:
     reg_alpha: 0.1
     reg_lambda: 1.0
     random_state: 42
-    n_jobs: -1
+    n_jobs: 2                       # Limit parallelism to save RAM
   lightgbm:
-    n_estimators: 300
+    n_estimators: 150               # Reduced from 300
     max_depth: 6
     learning_rate: 0.1
     num_leaves: 31
     subsample: 0.8
     colsample_bytree: 0.8
     random_state: 42
-    n_jobs: -1
+    n_jobs: 2                       # Limit parallelism to save RAM
 
 ensemble:
   use_stacking: true
-  stacking_cv_folds: 5
+  stacking_cv_folds: 3              # Reduced from 5 to lower peak memory
   optimize_base_models: false
   stacking_meta_learner: 'logistic'
 
@@ -70,6 +72,8 @@ training:
   validation_size: 0.1
   random_state: 42
   early_stopping_rounds: 50
+  use_unified_dataset: true         # Train on all 3 datasets merged
+  unified_max_samples: 100000       # Total cap after merging all datasets
 
 logging:
   level: INFO

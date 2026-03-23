@@ -25,6 +25,7 @@ if sys.platform == 'win32':
 # ===== END DLL PATH FIX =====
 
 import streamlit as st
+import requests
 from streamlit_option_menu import option_menu
 import pandas as pd
 import numpy as np
@@ -37,6 +38,10 @@ import time
 # Add src to path for backend imports
 sys.path.insert(0, 'src')
 from streamlit_app.backend_interface import BackendInterface
+from utils.logging_config import setup_logging
+
+# Initialize file + console logging
+setup_logging()
 
 # ============================================
 # Page Configuration
@@ -815,23 +820,186 @@ def show_settings():
         st.success("✓ Settings saved successfully!")
 
 # ============================================
+# Authentication
+# ============================================
+
+API_KEY = "YOUR API KEY"
+
+def login(email, password):
+    url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={API_KEY}"
+    payload = {
+        "email": email,
+        "password": password,
+        "returnSecureToken": True
+    }
+    return requests.post(url, json=payload).json()
+
+def signup(email, password):
+    url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
+    payload = {
+        "email": email,
+        "password": password,
+        "returnSecureToken": True
+    }
+    return requests.post(url, json=payload).json()
+
+# ============================================
 # Main Application
 # ============================================
 
-def main():
-    # Custom CSS
+def inject_custom_css():
     st.markdown("""
     <style>
-        .stMetric {
-            background-color: #262730;
-            padding: 15px;
-            border-radius: 5px;
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap');
+        
+        /* Global Font & Background */
+        html, body, [class*="css"] {
+            font-family: 'Outfit', sans-serif !important;
         }
+        
+        .stApp {
+            background: linear-gradient(135deg, #0f172a 0%, #1e1e2f 100%);
+            color: #f8fafc;
+        }
+
+        /* Glassmorphism for Metrics and Containers */
+        [data-testid="stMetric"], .css-1r6slb0, .css-12oz5g7 {
+            background: rgba(30, 41, 59, 0.7) !important;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border-radius: 12px !important;
+            padding: 20px !important;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3) !important;
+            transition: transform 0.3s ease, box-shadow 0.3s ease !important;
+        }
+        
+        [data-testid="stMetric"]:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px 0 rgba(239, 68, 68, 0.2) !important;
+            border: 1px solid rgba(239, 68, 68, 0.4) !important;
+        }
+
+        /* Metric Values Text Glowing */
+        [data-testid="stMetricValue"] {
+            font-weight: 800 !important;
+            background: -webkit-linear-gradient(45deg, #FF4B4B, #FF8F8F);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Premium Buttons */
+        .stButton>button {
+            background: linear-gradient(90deg, #FF4B4B 0%, #FF2B2B 100%);
+            color: white !important;
+            border: none !important;
+            border-radius: 8px !important;
+            font-weight: 600 !important;
+            padding: 0.5rem 2rem !important;
+            transition: all 0.3s ease !important;
+            box-shadow: 0 4px 15px rgba(255, 75, 75, 0.3) !important;
+        }
+        
+        .stButton>button:hover {
+            transform: scale(1.02);
+            box-shadow: 0 6px 20px rgba(255, 75, 75, 0.5) !important;
+            background: linear-gradient(90deg, #FF6B6B 0%, #FF4B4B 100%);
+        }
+
+        /* Inputs and Selectboxes */
+        .stTextInput>div>div>input, .stSelectbox>div>div>div {
+            background: rgba(15, 23, 42, 0.5) !important;
+            color: white !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border-radius: 8px !important;
+        }
+        
+        .stTextInput>div>div>input:focus, .stSelectbox>div>div>div:focus {
+            border: 1px solid #FF4B4B !important;
+            box-shadow: 0 0 10px rgba(255, 75, 75, 0.2) !important;
+        }
+
+        /* Sidebar Styling */
+        [data-testid="stSidebar"] {
+            background: rgba(15, 23, 42, 0.8) !important;
+            backdrop-filter: blur(15px);
+            border-right: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* Headings */
+        h1, h2, h3 {
+            font-weight: 800 !important;
+            letter-spacing: -0.5px;
+        }
+
+        /* Divider */
+        hr {
+            border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+        }
+        
+        /* Tabs Setup */
         .stTabs [data-baseweb="tab-list"] {
-            gap: 10px;
+            gap: 15px;
+            background-color: transparent;
+        }
+        .stTabs [data-baseweb="tab"] {
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 8px 8px 0 0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: none;
+        }
+        .stTabs [aria-selected="true"] {
+            background: rgba(239, 68, 68, 0.1);
+            border-bottom: 2px solid #FF4B4B !important;
+            color: #FF4B4B !important;
         }
     </style>
     """, unsafe_allow_html=True)
+
+def main():
+    inject_custom_css()
+    
+    if "user" not in st.session_state:
+        st.session_state.user = None
+
+    if not st.session_state.user:
+        st.title("🔐 IoT Botnet Detection Login")
+        menu = ["Login", "Signup"]
+        choice = st.sidebar.selectbox("Menu", menu)
+
+        if choice == "Signup":
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+
+            if st.button("Create Account"):
+                res = signup(email, password)
+                if "email" in res:
+                    st.success("Account created!")
+                else:
+                    st.error(res)
+
+        elif choice == "Login":
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+
+            if st.button("Login"):
+                res = login(email, password)
+                if "email" in res:
+                    st.session_state.user = res
+                    st.success("Login successful!")
+                    st.rerun()
+                else:
+                    st.error(res)
+        return  # Stop execution here if not logged in
+
+    # Logout button in sidebar
+    st.sidebar.markdown("### Account")
+    st.sidebar.write(f"Logged in as: {st.session_state.user['email']}")
+    if st.sidebar.button("Logout", type="primary"):
+        st.session_state.user = None
+        st.rerun()
+
+    # --- PROTECTED APP ---
     
     # Navigation
     selected_page = create_navigation()

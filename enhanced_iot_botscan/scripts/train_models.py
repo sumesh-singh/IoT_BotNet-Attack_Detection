@@ -20,6 +20,10 @@ from pathlib import Path
 # Add src to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
+# Initialize file + console logging
+from utils.logging_config import setup_logging
+setup_logging()
+
 from core.ensemble.hybrid_ensemble import HybridEnsemble
 from core.adversarial.adversarial_trainer import AdversarialTrainer
 from core.drift_detection.drift_detector import DriftDetector
@@ -83,7 +87,7 @@ class ModelTrainer:
                 self.logger.error(f"Failed to load {dataset_name}: {e}")
 
     def prepare_training_data(self, dataset_name: str = 'n_baiot') -> tuple:
-        """Prepare training and validation data."""
+        """Prepare training and validation data from a single dataset."""
 
         if dataset_name not in self.datasets:
             raise ValueError(f"Dataset {dataset_name} not loaded")
@@ -91,12 +95,58 @@ class ModelTrainer:
         dataset = self.datasets[dataset_name]
         X = dataset['features']
         y = dataset['labels']
+        feature_names = dataset.get('feature_names', [f'feat_{i}' for i in range(X.shape[1])])
 
-        # Split data: 70/15/15
+        return self._split_and_preprocess(X, y, feature_names, source_name=dataset_name)
+
+    def prepare_unified_training_data(self) -> tuple:
+        """
+        Prepare training data from ALL loaded datasets (unified).
+        
+        Uses DataLoader.load_unified_dataset() to merge N-BaIoT, IoT-23,
+        and BoT-IoT with feature alignment and binary label normalization,
+        then applies the standard split/engineer/scale pipeline.
+        
+        Returns:
+            Tuple of (X_train, X_val, X_test, y_train, y_val, y_test)
+        """
+        self.logger.info("Preparing unified training data from all datasets...")
+
+        unified = self.data_loader.load_unified_dataset(
+            max_samples=self.config.get('training', {}).get('unified_max_samples', 1000000)
+        )
+
+        X = unified['features']
+        y = unified['labels']
+        feature_names = unified.get('feature_names', [f'feat_{i}' for i in range(X.shape[1])])
+
+        self.logger.info(
+            f"Unified dataset: {X.shape[0]} samples, {X.shape[1]} features, "
+            f"{len(np.unique(y))} classes, label dist: {dict(zip(*np.unique(y, return_counts=True)))}"
+        )
+
+        return self._split_and_preprocess(X, y, feature_names, source_name='unified')
+
+    def _split_and_preprocess(self, X: np.ndarray, y: np.ndarray,
+                               feature_names: list, source_name: str = '') -> tuple:
+        """
+        Shared pipeline: split data 70/15/15, engineer features, scale.
+        
+        Args:
+            X: Feature matrix
+            y: Label array
+            feature_names: Column names for the feature matrix
+            source_name: Name for logging
+            
+        Returns:
+            Tuple of (X_train, X_val, X_test, y_train, y_val, y_test)
+        """
         from sklearn.model_selection import train_test_split
-        X_df = pd.DataFrame(X, columns=[f'feat_{i}' for i in range(X.shape[1])])
+
+        X_df = pd.DataFrame(X, columns=feature_names)
         y_sr = pd.Series(y)
 
+        # Split data: 70/15/15
         X_train_full, X_temp, y_train_full, y_temp = train_test_split(
             X_df, y_sr, test_size=0.30, random_state=42, stratify=y_sr
         )
@@ -124,17 +174,32 @@ class ModelTrainer:
         X_val_scaled, _ = scaler.transform(X_val_eng)
         X_test_scaled, _ = scaler.transform(X_test_eng)
 
-        self.logger.info(f"Data split - Train: {len(X_train_scaled)}, Val: {len(X_val_scaled)}, Test: {len(X_test_scaled)}")
+        self.logger.info(
+            f"[{source_name}] Data split - Train: {len(X_train_scaled)}, "
+            f"Val: {len(X_val_scaled)}, Test: {len(X_test_scaled)}"
+        )
 
-        return X_train_scaled.values.astype(np.float32), X_val_scaled.values.astype(np.float32), X_test_scaled.values.astype(np.float32), y_train_full.values, y_val.values, y_test.values
+        return (X_train_scaled.values.astype(np.float32),
+                X_val_scaled.values.astype(np.float32),
+                X_test_scaled.values.astype(np.float32),
+                y_train_full.values, y_val.values, y_test.values)
 
-    def train_baseline_models(self, dataset_name: str = 'n_baiot') -> dict:
-        """Train baseline ensemble models without adversarial training."""
-
-        self.logger.info(f"Training baseline models on {dataset_name}")
+    def train_baseline_models(self, dataset_name: str = 'n_baiot',
+                              use_unified: bool = False) -> dict:
+        """Train baseline ensemble models without adversarial training.
+        
+        Args:
+            dataset_name: Single dataset name (used when use_unified=False)
+            use_unified: If True, train on all datasets merged together
+        """
+        source = 'unified (all datasets)' if use_unified else dataset_name
+        self.logger.info(f"Training baseline models on {source}")
 
         # Prepare data
-        X_train, X_val, X_test, y_train, y_val, y_test = self.prepare_training_data(dataset_name)
+        if use_unified:
+            X_train, X_val, X_test, y_train, y_val, y_test = self.prepare_unified_training_data()
+        else:
+            X_train, X_val, X_test, y_train, y_val, y_test = self.prepare_training_data(dataset_name)
 
         self.drift_detector.set_reference_data(X_train)
 
@@ -174,13 +239,22 @@ class ModelTrainer:
 
         return baseline_results
 
-    def train_adversarial_robust_models(self, dataset_name: str = 'n_baiot') -> dict:
-        """Train models with adversarial robustness."""
-
-        self.logger.info(f"Training adversarially robust models on {dataset_name}")
+    def train_adversarial_robust_models(self, dataset_name: str = 'n_baiot',
+                                         use_unified: bool = False) -> dict:
+        """Train models with adversarial robustness.
+        
+        Args:
+            dataset_name: Single dataset name (used when use_unified=False)
+            use_unified: If True, train on all datasets merged together
+        """
+        source = 'unified (all datasets)' if use_unified else dataset_name
+        self.logger.info(f"Training adversarially robust models on {source}")
 
         # Prepare data
-        X_train, X_val, X_test, y_train, y_val, y_test = self.prepare_training_data(dataset_name)
+        if use_unified:
+            X_train, X_val, X_test, y_train, y_val, y_test = self.prepare_unified_training_data()
+        else:
+            X_train, X_val, X_test, y_train, y_val, y_test = self.prepare_training_data(dataset_name)
 
         # Create a fresh ensemble for adversarial training
         robust_ensemble = HybridEnsemble(self.config)
@@ -399,25 +473,40 @@ class ModelTrainer:
 
         self.logger.info(f"Results saved to {results_file}")
 
-    def run_full_training_pipeline(self, datasets: list = None) -> dict:
-        """Run the complete training pipeline."""
+    def run_full_training_pipeline(self, datasets: list = None,
+                                    use_unified: bool = True) -> dict:
+        """Run the complete training pipeline.
+        
+        Args:
+            datasets: List of dataset names to load
+            use_unified: If True (default), train on all datasets merged
+        """
 
         self.logger.info("Starting full training pipeline")
 
         # Load datasets
         self.load_datasets(datasets)
 
-        # Train baseline models on primary dataset
-        primary_dataset = 'n_baiot'
-        if primary_dataset in self.datasets:
-            self.train_baseline_models(primary_dataset)
-            self.train_adversarial_robust_models(primary_dataset)
+        if use_unified and len(self.datasets) >= 1:
+            # ---- Unified training: all datasets merged ----
+            self.logger.info(
+                f"Training on UNIFIED dataset (merging {list(self.datasets.keys())})"
+            )
+            self.train_baseline_models(use_unified=True)
+            self.train_adversarial_robust_models(use_unified=True)
+        else:
+            # ---- Legacy: single-dataset training ----
+            primary_dataset = 'n_baiot'
+            if primary_dataset in self.datasets:
+                self.train_baseline_models(primary_dataset)
+                self.train_adversarial_robust_models(primary_dataset)
 
-        # Cross-dataset validation
+        # Cross-dataset validation (always useful to check generalization)
         if len(self.datasets) > 1:
             self.validate_cross_dataset()
 
         # Test concept drift detection
+        primary_dataset = 'n_baiot'
         if primary_dataset in self.datasets:
             self.test_concept_drift_detection(primary_dataset)
 
@@ -442,15 +531,28 @@ def main():
     parser.add_argument(
         '--datasets',
         nargs='+',
-        default=['n_baiot'],
+        default=['n_baiot', 'iot_23', 'bot_iot'],
         choices=['n_baiot', 'iot_23', 'bot_iot'],
-        help='Datasets to use for training'
+        help='Datasets to load (default: all three)'
     )
     parser.add_argument(
         '--mode',
         choices=['baseline', 'adversarial', 'full'],
         default='full',
         help='Training mode'
+    )
+    parser.add_argument(
+        '--unified', '--no-unified',
+        dest='unified',
+        action='store_true',
+        default=True,
+        help='Train on unified (merged) dataset (default: True)'
+    )
+    parser.add_argument(
+        '--no-unified',
+        dest='unified',
+        action='store_false',
+        help='Train on single dataset only (legacy mode)'
     )
     parser.add_argument(
         '--output-dir',
@@ -469,11 +571,17 @@ def main():
 
         # Run training based on mode
         if args.mode == 'baseline':
-            trainer.train_baseline_models(args.datasets[0])
+            trainer.train_baseline_models(
+                args.datasets[0], use_unified=args.unified
+            )
         elif args.mode == 'adversarial':
-            trainer.train_adversarial_robust_models(args.datasets[0])
+            trainer.train_adversarial_robust_models(
+                args.datasets[0], use_unified=args.unified
+            )
         elif args.mode == 'full':
-            trainer.run_full_training_pipeline(args.datasets)
+            trainer.run_full_training_pipeline(
+                args.datasets, use_unified=args.unified
+            )
 
         # Save results
         trainer.save_results(args.output_dir)

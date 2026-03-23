@@ -270,7 +270,9 @@ class FeatureEngineer:
 
         if self.feature_selection_method == 'mutual_info':
             # Mutual information feature selection
-            mi_scores = mutual_info_classif(X_numerical, y, random_state=42)
+            # FIXED: Ensure y is discrete/int for classification mutual info
+            y_discrete = y.astype(int)
+            mi_scores = mutual_info_classif(X_numerical, y_discrete, random_state=42)
             feature_scores = pd.Series(mi_scores, index=numerical_cols)
 
             # Select top features
@@ -397,11 +399,59 @@ class FeatureEngineer:
                     f"Input data missing {len(missing_input_features)} features from training: "
                     f"{list(missing_input_features)[:5]}{'...' if len(missing_input_features) > 5 else ''}"
                 )
-                # Add missing input features as zeros to maintain consistency
+                
+                # SMART PADDING FOR MANUAL INFERENCE
+                # If the user only provided basic UI features (packet_size, bytes_per_sec),
+                # providing 0.0 for N-BaIoT features forces a benign prediction (0 packets = dead traffic).
+                # We can estimate the N-BaIoT statistical features based on bytes_per_sec and packet_size.
+                
+                # Check if we have the UI features
+                has_ui_features = 'bytes_per_sec' in X.columns and 'packet_size' in X.columns
+                
+                if has_ui_features:
+                    # Derivations
+                    bytes_per_sec = X['bytes_per_sec'].iloc[0] if len(X) == 1 else X['bytes_per_sec']
+                    pkt_size = X['packet_size'].iloc[0] if len(X) == 1 else X['packet_size']
+                    # Avoid division by zero
+                    pkts_per_sec = bytes_per_sec / (pkt_size if pkt_size > 0 else 1)
+                    
+                    # N-BaIoT time windows: L0.01 (~10ms), L0.1 (~100ms), L1 (~1s), L3 (~3s), L5 (~5s)
+                    window_multipliers = {
+                        'L0.01': 0.01,
+                        'L0.1': 0.1,
+                        'L1': 1.0,
+                        'L3': 3.0,
+                        'L5': 5.0
+                    }
+                
                 for feat in missing_input_features:
                     X = X.copy()  # Avoid modifying original
-                    X[feat] = 0.0
-                logger.info(f"Added {len(missing_input_features)} missing input features as zeros")
+                    
+                    fill_value = 0.0
+                    
+                    if has_ui_features:
+                        # Estimate N-BaIoT weight (packet count in time window)
+                        if 'weight' in feat:
+                            for window, mult in window_multipliers.items():
+                                if window in feat:
+                                    fill_value = pkts_per_sec * mult
+                                    break
+                        # Estimate N-BaIoT mean (average packet size)
+                        elif 'mean' in feat:
+                            fill_value = pkt_size
+                        # Estimate N-BaIoT magnitude (root-square of sum of sizes) - rough approximation
+                        elif 'magnitude' in feat:
+                            for window, mult in window_multipliers.items():
+                                if window in feat:
+                                    # Very rough magnitude approximation
+                                    count = pkts_per_sec * mult
+                                    fill_value = pkt_size * (count ** 0.5) if count > 0 else 0
+                                    break
+                        # Estimate N-BaIoT radius/variance (assume 0 variance for rigid botnet traffic, so 0.0 is fine)
+                        
+                    X[feat] = fill_value
+                    
+                logger.info(f"Smart-padded {len(missing_input_features)} missing input features for inference")
             
             extra_input_features = set(X.columns) - set(self.training_features)
             if extra_input_features:

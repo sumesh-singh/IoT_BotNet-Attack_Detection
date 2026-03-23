@@ -275,52 +275,115 @@ class StackingEnsemble:
             Tuple of (stacking_predictions, true_labels)
         """
 
+    @staticmethod
+    def generate_stacking_data(base_models: List[Any], X: pd.DataFrame,
+                               y: pd.Series = None, cv_folds: int = 5) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Generate stacking data using cross-validation to prevent overfitting.
+
+        Args:
+            base_models: List of trained base models
+            X: Features
+            y: Labels (optional, for stratified CV)
+            cv_folds: Number of CV folds
+
+        Returns:
+            Tuple of (stacking_predictions, true_labels)
+        """
+
         n_samples = len(X)
         n_models = len(base_models)
-
-        # Initialize stacking predictions array
-        stacking_predictions = np.zeros((n_samples, n_models))
+        
+        # We need to determine the output dimension for each model
+        # To do this safely, we'll store predictions for each sample and model in a list first
+        # List of size n_models, each containing arrays of predictions
+        # But simpler: Initialize a list of OOF arrays for each model
+        model_oof_data = [[] for _ in range(n_models)]
+        # We also need to reconstruct the order since CV splits shuffle data
+        original_indices = []
 
         if y is not None:
             # Use stratified K-fold
             skf = StratifiedKFold(
                 n_splits=cv_folds, shuffle=True, random_state=42)
-            splits = skf.split(X, y)
+            splits = list(skf.split(X, y))
         else:
             # Use regular K-fold
             from sklearn.model_selection import KFold
             kf = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
-            splits = kf.split(X)
+            splits = list(kf.split(X))
 
-        # Generate out-of-fold predictions for each base model
+        # We need a container to hold the predictions for each index
+        # To handle variable width (binary vs multi-class), we used a dict keyed by index
+        # index -> list of predictions from each model
+        # But strict index alignment is better.
+        
+        # Let's perform the CV
+        # For each fold, we get predictions for val_idx
+        # We need to store these predictions and then sort them back to original order
+        
+        # Store tuples of (index, model_idx, prediction_array)
+        all_fold_predictions = []
+
         for fold_idx, (train_idx, val_idx) in enumerate(splits):
             X_train_fold = X.iloc[train_idx]
             X_val_fold = X.iloc[val_idx]
+            y_train_fold = y.iloc[train_idx] if y is not None else None
+            
+            # For this fold, we need to correct the predictions match the validation indices
+            fold_indices = val_idx
 
             for model_idx, model in enumerate(base_models):
                 # Train model on fold training data
-                model.fit(X_train_fold,
-                          y.iloc[train_idx] if y is not None else None)
+                model.fit(X_train_fold, y_train_fold)
 
-                # Predict on fold validation data
                 # Predict on fold validation data
                 if hasattr(model, 'predict_proba'):
                     probas = model.predict_proba(X_val_fold)
                     
                     if probas.shape[1] == 2:
-                        # Binary classification: use probability of positive class
+                        # Binary classification: use probability of positive class (shape: N,)
                         fold_predictions = probas[:, 1]
+                        # Reshape to (N, 1) for consistent handling
+                        fold_predictions = fold_predictions.reshape(-1, 1)
                     else:
-                        # FIXED: Multi-class: use max probability to maintain continuous values
-                        # Using class labels breaks meta-learner which expects continuous features
-                        fold_predictions = np.max(probas, axis=1)
+                        # Multi-class: Use ALL class probabilities (shape: N, n_classes)
+                        fold_predictions = probas
                 else:
-                    # Use raw predictions
-                    fold_predictions = model.predict(X_val_fold)
+                    # Use raw predictions (not ideal for stacking but fallback)
+                    fold_predictions = model.predict(X_val_fold).reshape(-1, 1)
 
-                stacking_predictions[val_idx, model_idx] = fold_predictions
+                all_fold_predictions.append((fold_indices, model_idx, fold_predictions))
 
-        return stacking_predictions, y.values if y is not None else None
+        # Now reconstruct the full stacking matrix
+        # First, find output width for each model
+        model_widths = {}
+        for _, m_idx, preds in all_fold_predictions:
+            if m_idx not in model_widths:
+                model_widths[m_idx] = preds.shape[1]
+            else:
+                # distinct folds should have same width
+                pass
+        
+        total_width = sum(model_widths.values())
+        
+        # Initialize final array
+        stacking_matrix = np.zeros((n_samples, total_width))
+        
+        # Calculate column offsets for each model
+        model_offsets = {}
+        current_offset = 0
+        for m_idx in range(n_models):
+            model_offsets[m_idx] = current_offset
+            current_offset += model_widths.get(m_idx, 0) # Should exist
+            
+        # Fill the matrix
+        for indices, m_idx, preds in all_fold_predictions:
+            start_col = model_offsets[m_idx]
+            end_col = start_col + model_widths[m_idx]
+            stacking_matrix[indices, start_col:end_col] = preds
+            
+        return stacking_matrix, y.values if y is not None else None
 
 
 # Example usage and testing

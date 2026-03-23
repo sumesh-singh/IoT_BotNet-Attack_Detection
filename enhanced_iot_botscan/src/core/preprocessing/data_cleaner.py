@@ -143,18 +143,54 @@ class ConservativeDataCleaner:
     
     def _remove_exact_duplicates(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Remove ONLY exact duplicates (row-wise identical)
-        Does NOT use near-duplicate detection
+        Remove ONLY exact duplicates (row-wise identical).
+        
+        For unified datasets where features are zero-padded, only considers
+        columns that have actual variance (non-constant) to avoid treating
+        rows from different datasets as duplicates just because their
+        padded columns are all zero.
         """
         before = len(df)
-        df_clean = df.drop_duplicates(keep='first')
-        removed = before - len(df_clean)
         
+        # Fast path: no duplicates possible in a 1-row dataframe (e.g. manual inference)
+        if before <= 1:
+            return df
+
+        # Identify columns with actual variance (non-constant)
+        # This filters out zero-padded columns from unified alignment
+        nunique = df.nunique()
+        informative_cols = nunique[nunique > 1].index.tolist()
+        
+        # If no columns have variance, all rows are identical. Keep just the first.
+        if not informative_cols:
+            logger.info("  All columns are constant. Keeping only the first row.")
+            return df.head(1)
+
+        if len(informative_cols) < len(df.columns):
+            n_skipped = len(df.columns) - len(informative_cols)
+            logger.info(f"  Duplicate check: using {len(informative_cols)}/{len(df.columns)} "
+                        f"columns (skipping {n_skipped} constant/zero-padded columns)")
+            subset = informative_cols
+        else:
+            subset = None  # Use all columns
+
+        df_clean = df.drop_duplicates(subset=subset, keep='first')
+        removed = before - len(df_clean)
+
+        # Safety cap: if removal rate > 15%, something is off — keep the data
+        removal_rate = (removed / before) * 100 if before > 0 else 0
+        if removal_rate > 15:
+            logger.warning(
+                f"  Duplicate removal would drop {removed} rows ({removal_rate:.1f}%) - "
+                f"exceeds 15% safety cap. Skipping deduplication to preserve data."
+            )
+            return df
+
         if removed > 0:
-            logger.info(f"  Removed {removed} exact duplicate rows")
+            logger.info(f"  Removed {removed} exact duplicate rows ({removal_rate:.1f}%)")
         else:
             logger.info(f"  No exact duplicates found")
-        
+
         return df_clean
     
     def _remove_outliers_conservative(self, df: pd.DataFrame, target_col: Optional[str] = None) -> pd.DataFrame:

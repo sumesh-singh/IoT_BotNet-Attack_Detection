@@ -178,18 +178,22 @@ class HybridEnsemble:
             if not base_probabilities:
                 raise ValueError("No trained base models available")
 
-            # FIXED: Stack probabilities based on classification type
+            # FIXED: Stack probabilities based on classification type (matching generate_stacking_data)
             # Binary classification: use probability of positive class (col 1)
-            # Multi-class: use max probability to maintain consistent dimensionality
-            if self.n_classes is not None and self.n_classes == 2:
-                base_feature_array = np.column_stack(
-                    [prob[:, 1] if prob.shape[1] > 1 else prob[:, 0] for prob in base_probabilities]
-                )
-            else:
-                # Multi-class: use max probability for each base model
-                base_feature_array = np.column_stack(
-                    [np.max(prob, axis=1) for prob in base_probabilities]
-                )
+            # Multi-class: use all class probabilities to preserve full info
+            stacked_features = []
+            
+            for prob in base_probabilities:
+                if self.n_classes is not None and self.n_classes == 2:
+                    if prob.shape[1] > 1:
+                        stacked_features.append(prob[:, 1].reshape(-1, 1))
+                    else:
+                        stacked_features.append(prob[:, 0].reshape(-1, 1))
+                else:
+                    # Multi-class: use all probabilities
+                    stacked_features.append(prob)
+            
+            base_feature_array = np.hstack(stacked_features)
 
             # Use meta-learner for final prediction
             return self.meta_learner.predict(base_feature_array)
@@ -238,15 +242,17 @@ class HybridEnsemble:
             if not base_probabilities:
                 raise ValueError("No trained base models available")
 
-            # FIXED: Stack probabilities based on classification type
-            if self.n_classes is not None and self.n_classes == 2:
-                # Binary classification: use probability of positive class
-                base_prob_array = np.column_stack(
-                    [prob[:, 1] for prob in base_probabilities])
-            else:
-                # Multi-class: use max probability for each base model
-                base_prob_array = np.column_stack(
-                    [np.max(prob, axis=1) for prob in base_probabilities])
+            # FIXED: Stack probabilities based on classification type (matching generate_stacking_data)
+            stacked_features = []
+            for prob in base_probabilities:
+                if self.n_classes is not None and self.n_classes == 2:
+                    # Binary classification: use probability of positive class
+                    stacked_features.append(prob[:, 1].reshape(-1, 1))
+                else:
+                    # Multi-class: use all probabilities
+                    stacked_features.append(prob)
+            
+            base_prob_array = np.hstack(stacked_features)
 
             # Use meta-learner for final probabilities
             return self.meta_learner.predict_proba(base_prob_array)
@@ -318,8 +324,8 @@ class HybridEnsemble:
 
         return self.meta_learner.get_base_model_weights()
 
-    def save_model(self, filepath: str, feature_engineer_state: Optional[Dict[str, Any]] = None) -> None:
-        """Save trained ensemble to disk with feature engineer state."""
+    def save_model(self, filepath: str, feature_engineer_state: Optional[Dict[str, Any]] = None, validation_results: Optional[Dict[str, Any]] = None) -> None:
+        """Save trained ensemble to disk with feature engineer state and validation results."""
 
         if not self.is_trained:
             raise ValueError("Cannot save untrained ensemble")
@@ -360,6 +366,7 @@ class HybridEnsemble:
             'meta_learner': meta_learner_data,
             'use_stacking': self.use_stacking,
             'training_history': self.training_history,
+            'validation_results': validation_results,
             'is_trained': self.is_trained,
             'label_encoder': self.label_encoder,
             'config': self.config,
@@ -411,6 +418,7 @@ class HybridEnsemble:
         self.config = ensemble_data['config']
         self.feature_names_in_ = ensemble_data.get('feature_names_in_')
         self.n_classes = ensemble_data.get('n_classes')  # CRITICAL: Load n_classes for prediction
+        self.validation_results = ensemble_data.get('validation_results', {})
         
         # CRITICAL: Load feature engineer state (check both keys)
         self.feature_engineer_state = ensemble_data.get('feature_engineer_state')

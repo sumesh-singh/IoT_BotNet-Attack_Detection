@@ -133,6 +133,31 @@ class BackendInterface:
                     logger.info("Restored FeatureEngineer state from model.")
                 
                 self.current_metrics = self.model.get_model_info()
+                
+                # IMPORTANT: Restore training history and metrics from the loaded model
+                # so the dashboard can display accuracy and training date correctly
+                if hasattr(self.model, 'training_history') and self.model.training_history:
+                    # Sync backend history with model history
+                    self.training_history = []
+                    for entry in self.model.training_history:
+                        acc = entry.get('ensemble_validation_accuracy', 0.0)
+                        ts = entry.get('training_timestamp', 'Unknown')
+                        self.training_history.append({
+                            'timestamp': ts,
+                            'accuracy': acc,
+                            'config': {}  # Config is saved elsewhere, leave empty for now
+                        })
+                    
+                    # Ensure current_metrics has the latest validation accuracy for the UI
+                    latest = self.model.training_history[-1]
+                    if 'ensemble_validation_accuracy' in latest:
+                        self.current_metrics['ensemble_validation_accuracy'] = latest['ensemble_validation_accuracy']
+                    
+                # Restore validation results for confusion matrix
+                if hasattr(self.model, 'validation_results') and self.model.validation_results:
+                    self.validation_results = self.model.validation_results
+                    logger.info("Restored validation results for confusion matrix.")
+                    
                 logger.info("Loaded existing model.")
             except Exception as e:
                 logger.error(f"Failed to load model: {e}")
@@ -246,7 +271,11 @@ class BackendInterface:
             else:
                  logger.info(f"Saving feature engineer state with {len(feature_engineer_state['selected_features'])} features")
 
-            self.model.save_model(self.model_path, feature_engineer_state=feature_engineer_state)
+            self.model.save_model(
+                self.model_path, 
+                feature_engineer_state=feature_engineer_state,
+                validation_results=self.validation_results
+            )
 
             # Set reference data for drift detection (using training data)
             # We use a subset for performance if dataset is large, but full data is ideal for distribution
