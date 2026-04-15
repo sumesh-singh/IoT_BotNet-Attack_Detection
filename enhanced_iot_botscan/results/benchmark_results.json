@@ -1,0 +1,164 @@
+{
+  "n_baiot": [
+    {
+      "model": "Random Forest",
+      "accuracy": 1.0,
+      "precision_weighted": 1.0,
+      "recall_weighted": 1.0,
+      "f1_weighted": 1.0,
+      "precision_macro": 1.0,
+      "recall_macro": 1.0,
+      "f1_macro": 1.0,
+      "auc_roc": 1.0,
+      "n_test_samples": 89000,
+      "n_classes": 2
+    },
+    {
+      "model": "XGBoost",
+      "accuracy": 0.9999662921348315,
+      "precision_weighted": 0.9999662933988289,
+      "recall_weighted": 0.9999662921348315,
+      "f1_weighted": 0.9999662896413798,
+      "precision_macro": 0.9999812507030986,
+      "recall_macro": 0.9998333333333334,
+      "f1_macro": 0.9999072779512406,
+      "auc_roc": 0.9999999972222222,
+      "n_test_samples": 89000,
+      "n_classes": 2
+    },
+    {
+      "model": "LightGBM",
+      "accuracy": 0.9999887640449439,
+      "precision_weighted": 0.9999887641853915,
+      "recall_weighted": 0.9999887640449439,
+      "f1_weighted": 0.9999887637679288,
+      "precision_macro": 0.999993750078124,
+      "recall_macro": 0.9999444444444445,
+      "f1_macro": 0.9999690956984577,
+      "auc_roc": 0.9999999999999999,
+      "n_test_samples": 89000,
+      "n_classes": 2
+    },
+    {
+      "model": "Stacking Ensemble",
+      "accuracy": 0.9999887640449439,
+      "precision_weighted": 0.9999887641853915,
+      "recall_weighted": 0.9999887640449439,
+      "f1_weighted": 0.9999887637679288,
+      "precision_macro": 0.999993750078124,
+      "recall_macro": 0.9999444444444445,
+      "f1_macro": 0.9999690956984577,
+      "auc_roc": 1.0,
+      "n_test_samples": 89000,
+      "n_classes": 2
+    }
+  ],
+  "iot_23": [
+    {
+      "model": "Random Forest",
+      "accuracy": 0.9566,
+      "precision_weighted": 0.9599533726816506,
+      "recall_weighted": 0.9566,
+      "f1_weighted": 0.9564696340282931,
+      "precision_macro": 0.9609624894608509,
+      "recall_macro": 0.9554466819570029,
+      "f1_macro": 0.9563911730268031,
+      "auc_roc": 0.9554394770865104,
+      "n_test_samples": 10000,
+      "n_classes": 2
+    },
+    {
+      "model": "XGBoost",
+      "accuracy": 0.9567,
+      "precision_weighted": 0.9600702858170053,
+      "recall_weighted": 0.9567,
+      "f1_weighted": 0.9565694431249129,
+      "precision_macro": 0.9610821499191085,
+      "recall_macro": 0.9555441478439425,
+      "f1_macro": 0.9564910486964542,
+      "auc_roc": 0.9562524066268797,
+      "n_test_samples": 10000,
+      "n_classes": 2
+    },
+    {
+      "model": "LightGBM",
+      "accuracy": 0.9567,
+      "precision_weighted": 0.9600702858170053,
+      "recall_weighted": 0.9567,
+      "f1_weighted": 0.9565694431249129,
+      "precision_macro": 0.9610821499191085,
+      "recall_macro": 0.9555441478439425,
+      "f1_macro": 0.9564910486964542,
+      "auc_roc": 0.956497612385973,
+      "n_test_samples": 10000,
+      "n_classes": 2
+    },
+    {
+      "model": "Stacking Ensemble",
+      "accuracy": 0.9567,
+      "precision_weighted": 0.9600702858170053,
+      "recall_weighted": 0.9567,
+      "f1_weighted": 0.9565694431249129,
+      "precision_macro": 0.9610821499191085,
+      "recall_macro": 0.9555441478439425,
+      "f1_macro": 0.9564910486964542,
+      "auc_roc": 0.9552796290292238,
+      "n_test_samples": 10000,
+      "n_classes": 2
+    }
+  ],
+  "bot_iot": [
+    {
+      "model": "Random Forest",
+      "accuracy": 0.754375,
+      "precision_weighted": 0.8147821495619525,
+      "recall_weighted": 0.754375,
+      "f1_weighted": 0.6500190680460213,
+      "precision_macro": 0.8770337922403004,
+      "recall_macro": 0.5025316455696203,
+      "f1_macro": 0.43493432279736266,
+      "auc_roc": 0.5059950627659016,
+      "n_test_samples": 1600,
+      "n_classes": 2
+    },
+    {
+      "model": "XGBoost",
+      "accuracy": 0.753125,
+      "precision_weighted": 0.567197265625,
+      "recall_weighted": 0.753125,
+      "f1_weighted": 0.647069964349376,
+      "precision_macro": 0.3765625,
+      "recall_macro": 0.5,
+      "f1_macro": 0.4295900178253119,
+      "auc_roc": 0.5153064761804717,
+      "n_test_samples": 1600,
+      "n_classes": 2
+    },
+    {
+      "model": "LightGBM",
+      "accuracy": 0.753125,
+      "precision_weighted": 0.567197265625,
+      "recall_weighted": 0.753125,
+      "f1_weighted": 0.647069964349376,
+      "precision_macro": 0.3765625,
+      "recall_macro": 0.5,
+      "f1_macro": 0.4295900178253119,
+      "auc_roc": 0.5289952203372026,
+      "n_test_samples": 1600,
+      "n_classes": 2
+    },
+    {
+      "model": "Stacking Ensemble",
+      "accuracy": 0.753125,
+      "precision_weighted": 0.567197265625,
+      "recall_weighted": 0.753125,
+      "f1_weighted": 0.647069964349376,
+      "precision_macro": 0.3765625,
+      "recall_macro": 0.5,
+      "f1_macro": 0.4295900178253119,
+      "auc_roc": 0.5151993276957824,
+      "n_test_samples": 1600,
+      "n_classes": 2
+    }
+  ]
+}

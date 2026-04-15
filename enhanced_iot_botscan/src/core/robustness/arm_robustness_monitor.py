@@ -410,12 +410,12 @@ class AdaptiveRobustnessMonitor:
         scores['confidence_stability'] = 1.0 - confidence_analysis['mean_shift']
         
         # Overall robustness score (weighted average)
-        weights = {
+        weights = self.config.get('arm_weights', {
             'noise': 0.3,
             'masking': 0.3,
             'burst': 0.2,
             'confidence': 0.2
-        }
+        })
         
         scores['overall_robustness'] = (
             weights['noise'] * scores['noise_robustness'] +

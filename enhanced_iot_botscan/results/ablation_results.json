@@ -1,0 +1,46 @@
+{
+  "A": {
+    "condition": "A: RF Only (Baseline)",
+    "accuracy": 1.0,
+    "f1_weighted": 1.0,
+    "arm_overall": 0.8624359475065532,
+    "arm_noise": 0.8091999999999999,
+    "arm_masking": 0.92985,
+    "arm_burst": 0.997,
+    "arm_confidence": 0.706604737532766,
+    "time_s": 714.5791857242584
+  },
+  "B": {
+    "condition": "B: Stacking Ensemble (N-BaIoT)",
+    "accuracy": 0.9999887640449439,
+    "f1_weighted": 0.9999887637679288,
+    "arm_overall": 0.9208288374447284,
+    "arm_noise": 0.85905,
+    "arm_masking": 0.9155,
+    "arm_burst": 0.9972666666666666,
+    "arm_confidence": 0.9450525205569751,
+    "time_s": 2875.000300168991
+  },
+  "C": {
+    "condition": "C: Stacking + Multi-Dataset",
+    "accuracy": 0.9999775280898876,
+    "f1_weighted": 0.9999775269817571,
+    "arm_overall": 0.9199551591983414,
+    "arm_noise": 0.83535,
+    "arm_masking": 0.95935,
+    "arm_burst": 0.9975999999999999,
+    "arm_confidence": 0.9101257959917063,
+    "time_s": 3352.2886850833893
+  },
+  "D": {
+    "condition": "D: Full System (Multi-DS + ARM Aug)",
+    "accuracy": 0.9999662921348315,
+    "f1_weighted": 0.9999662896413798,
+    "arm_overall": 0.9990593887009032,
+    "arm_noise": 0.9984500000000001,
+    "arm_masking": 0.9994500000000001,
+    "arm_burst": 0.9991333333333333,
+    "arm_confidence": 0.9993136101711826,
+    "time_s": 6204.739635705948
+  }
+}

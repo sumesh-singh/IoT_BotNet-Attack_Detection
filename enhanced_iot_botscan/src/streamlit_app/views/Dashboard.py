@@ -83,10 +83,10 @@ def app():
                 color='True Class',
                 title="Validation Predictions Stream",
                 color_discrete_sequence=px.colors.qualitative.Bold,
-                template="plotly_dark",
+                template="plotly_white",
                 height=350
             )
-            fig_traffic.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+            fig_traffic.update_layout(paper_bgcolor="#f8f9fc", plot_bgcolor="#f8f9fc")
             st.plotly_chart(fig_traffic, use_container_width=True)
     
         with row1_col2:
@@ -101,10 +101,10 @@ def app():
                 hole=0.5,
                 title="Predicted Attack Distribution",
                 color_discrete_sequence=px.colors.qualitative.Bold,
-                template="plotly_dark",
+                template="plotly_white",
                 height=350
             )
-            fig_donut.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+            fig_donut.update_layout(paper_bgcolor="#f8f9fc", plot_bgcolor="#f8f9fc")
             st.plotly_chart(fig_donut, use_container_width=True)
     
         row2_col1, row2_col2 = st.columns([1, 1])
@@ -133,9 +133,9 @@ def app():
                     title="Confusion Matrix",
                     xaxis_title="Predicted",
                     yaxis_title="True",
-                    template="plotly_dark",
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)",
+                    template="plotly_white",
+                    paper_bgcolor="#f8f9fc",
+                    plot_bgcolor="#f8f9fc",
                     height=350
                 )
                 st.plotly_chart(fig_cm, use_container_width=True)
@@ -150,13 +150,13 @@ def app():
             ]
             
             for alert in alerts:
-                color = "#ff4b4b" if alert['severity'] in ["High", "Critical"] else "#ffa500" if alert['severity'] == "Medium" else "#00d4ff"
+                color = "#dc2626" if alert['severity'] in ["High", "Critical"] else "#d97706" if alert['severity'] == "Medium" else "#2563eb"
                 st.markdown(
                     f"""
                     <div class="alert-card" style="border-left-color: {color};">
                         <strong style="color: {color}">{alert['type']}</strong> 
-                        <span style="float:right; font-size:0.8em; color: #b0b0b0;">{alert['time']}</span><br>
-                        <span style="font-size:0.9em; color: #fafafa;">Severity: {alert['severity']}</span>
+                        <span style="float:right; font-size:0.8em; color: #6b7280;">{alert['time']}</span><br>
+                        <span style="font-size:0.9em; color: #1a1a2e;">Severity: {alert['severity']}</span>
                     </div>
                     """, 
                     unsafe_allow_html=True

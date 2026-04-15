@@ -79,16 +79,17 @@ def create_navigation():
             default_index=0,
             orientation="horizontal",
             styles={
-                "container": {"padding": "0!important", "background-color": "#262730"},
-                "icon": {"color": "#FF4B4B", "font-size": "20px"},
+                "container": {"padding": "0!important", "background-color": "#faf5eb"},
+                "icon": {"color": "#b45309", "font-size": "20px"},
                 "nav-link": {
                     "font-size": "16px",
                     "text-align": "center",
                     "margin": "0px",
                     "padding": "10px",
-                    "--hover-color": "#1F1F1F",
+                    "color": "#78716c",
+                    "--hover-color": "#f5efe4",
                 },
-                "nav-link-selected": {"background-color": "#FF4B4B"},
+                "nav-link-selected": {"background-color": "#b45309", "color": "white"},
             }
         )
         return selected
@@ -823,7 +824,7 @@ def show_settings():
 # Authentication
 # ============================================
 
-API_KEY = "YOUR API KEY"
+API_KEY = "AIzaSyDGL4DlNtpm0wWg-tB4-iMgDIYW88m-LFY"
 
 def login(email, password):
     url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={API_KEY}"
@@ -832,7 +833,12 @@ def login(email, password):
         "password": password,
         "returnSecureToken": True
     }
-    return requests.post(url, json=payload).json()
+    try:
+        return requests.post(url, json=payload, timeout=10).json()
+    except requests.exceptions.ConnectionError:
+        return {"error": {"message": "No internet connection. Please check your network and try again."}}
+    except requests.exceptions.Timeout:
+        return {"error": {"message": "Connection timed out. Please try again."}}
 
 def signup(email, password):
     url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
@@ -841,7 +847,12 @@ def signup(email, password):
         "password": password,
         "returnSecureToken": True
     }
-    return requests.post(url, json=payload).json()
+    try:
+        return requests.post(url, json=payload, timeout=10).json()
+    except requests.exceptions.ConnectionError:
+        return {"error": {"message": "No internet connection. Please check your network and try again."}}
+    except requests.exceptions.Timeout:
+        return {"error": {"message": "Connection timed out. Please try again."}}
 
 # ============================================
 # Main Application
@@ -858,100 +869,131 @@ def inject_custom_css():
         }
         
         .stApp {
-            background: linear-gradient(135deg, #0f172a 0%, #1e1e2f 100%);
-            color: #f8fafc;
+            background: linear-gradient(135deg, #fdf8f0 0%, #faf5eb 50%, #f5efe4 100%);
+            color: #44403c !important;
+        }
+
+        /* Fix invisible white text from dark theme remnants */
+        p, label, span, [data-testid="stMetricLabel"], [data-testid="stWidgetLabel"], .stMarkdown {
+            color: #44403c !important;
         }
 
         /* Glassmorphism for Metrics and Containers */
         [data-testid="stMetric"], .css-1r6slb0, .css-12oz5g7 {
-            background: rgba(30, 41, 59, 0.7) !important;
+            background: rgba(255, 255, 255, 0.75) !important;
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border: 1px solid rgba(180, 83, 9, 0.12) !important;
             border-radius: 12px !important;
             padding: 20px !important;
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3) !important;
+            box-shadow: 0 4px 16px 0 rgba(120, 80, 30, 0.06) !important;
             transition: transform 0.3s ease, box-shadow 0.3s ease !important;
         }
         
         [data-testid="stMetric"]:hover {
             transform: translateY(-5px);
-            box-shadow: 0 12px 40px 0 rgba(239, 68, 68, 0.2) !important;
-            border: 1px solid rgba(239, 68, 68, 0.4) !important;
+            box-shadow: 0 8px 28px 0 rgba(180, 83, 9, 0.12) !important;
+            border: 1px solid rgba(180, 83, 9, 0.25) !important;
         }
 
-        /* Metric Values Text Glowing */
+        /* Metric Values - Warm Amber Gradient */
         [data-testid="stMetricValue"] {
             font-weight: 800 !important;
-            background: -webkit-linear-gradient(45deg, #FF4B4B, #FF8F8F);
+            background: -webkit-linear-gradient(45deg, #b45309, #d97706);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
-        /* Premium Buttons */
+        /* Premium Buttons - Amber */
         .stButton>button {
-            background: linear-gradient(90deg, #FF4B4B 0%, #FF2B2B 100%);
+            background: linear-gradient(90deg, #b45309 0%, #d97706 100%);
             color: white !important;
             border: none !important;
             border-radius: 8px !important;
             font-weight: 600 !important;
             padding: 0.5rem 2rem !important;
             transition: all 0.3s ease !important;
-            box-shadow: 0 4px 15px rgba(255, 75, 75, 0.3) !important;
+            box-shadow: 0 4px 15px rgba(180, 83, 9, 0.2) !important;
+        }
+
+        .stButton>button p, .stButton>button span {
+            color: white !important;
+            background: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            box-shadow: none !important;
         }
         
         .stButton>button:hover {
             transform: scale(1.02);
-            box-shadow: 0 6px 20px rgba(255, 75, 75, 0.5) !important;
-            background: linear-gradient(90deg, #FF6B6B 0%, #FF4B4B 100%);
+            box-shadow: 0 6px 20px rgba(180, 83, 9, 0.35) !important;
+            background: linear-gradient(90deg, #d97706 0%, #f59e0b 100%);
         }
 
         /* Inputs and Selectboxes */
         .stTextInput>div>div>input, .stSelectbox>div>div>div {
-            background: rgba(15, 23, 42, 0.5) !important;
-            color: white !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            background: rgba(255, 255, 255, 0.8) !important;
+            color: #44403c !important;
+            border: 1px solid #e7e0d5 !important;
             border-radius: 8px !important;
         }
         
         .stTextInput>div>div>input:focus, .stSelectbox>div>div>div:focus {
-            border: 1px solid #FF4B4B !important;
-            box-shadow: 0 0 10px rgba(255, 75, 75, 0.2) !important;
+            border: 1px solid #b45309 !important;
+            box-shadow: 0 0 10px rgba(180, 83, 9, 0.12) !important;
         }
 
         /* Sidebar Styling */
         [data-testid="stSidebar"] {
-            background: rgba(15, 23, 42, 0.8) !important;
+            background: rgba(255, 253, 248, 0.95) !important;
             backdrop-filter: blur(15px);
-            border-right: 1px solid rgba(255, 255, 255, 0.05);
+            border-right: 1px solid #e7e0d5;
         }
 
         /* Headings */
         h1, h2, h3 {
             font-weight: 800 !important;
             letter-spacing: -0.5px;
+            color: #292524 !important;
         }
 
         /* Divider */
         hr {
-            border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border-top: 1px solid #e7e0d5 !important;
         }
         
-        /* Tabs Setup */
+        /* Tabs */
         .stTabs [data-baseweb="tab-list"] {
             gap: 15px;
             background-color: transparent;
         }
         .stTabs [data-baseweb="tab"] {
-            background: rgba(30, 41, 59, 0.5);
+            background: rgba(255, 255, 255, 0.6);
             border-radius: 8px 8px 0 0;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid #e7e0d5;
             border-bottom: none;
+            color: #78716c;
         }
         .stTabs [aria-selected="true"] {
-            background: rgba(239, 68, 68, 0.1);
-            border-bottom: 2px solid #FF4B4B !important;
-            color: #FF4B4B !important;
+            background: rgba(180, 83, 9, 0.06);
+            border-bottom: 2px solid #b45309 !important;
+            color: #b45309 !important;
+        }
+
+        /* Expanders */
+        .streamlit-expanderHeader {
+            color: #44403c !important;
+        }
+
+        /* Info/Warning/Error boxes */
+        .stAlert {
+            border-radius: 8px !important;
+        }
+
+        /* DataFrames */
+        .stDataFrame {
+            border: 1px solid #e7e0d5 !important;
+            border-radius: 8px !important;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -976,7 +1018,8 @@ def main():
                 if "email" in res:
                     st.success("Account created!")
                 else:
-                    st.error(res)
+                    err_msg = res.get('error', {}).get('message', str(res)) if isinstance(res, dict) else str(res)
+                    st.error(f"Signup failed: {err_msg}")
 
         elif choice == "Login":
             email = st.text_input("Email")
@@ -989,7 +1032,8 @@ def main():
                     st.success("Login successful!")
                     st.rerun()
                 else:
-                    st.error(res)
+                    err_msg = res.get('error', {}).get('message', str(res)) if isinstance(res, dict) else str(res)
+                    st.error(f"Login failed: {err_msg}")
         return  # Stop execution here if not logged in
 
     # Logout button in sidebar
